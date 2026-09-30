@@ -1,282 +1,224 @@
-# GTM Autonomous System
+# Autonomous AI Sales / GTM System
 
-An **Autonomous AI Sales/GTM (Go-To-Market) system** built with FastAPI, PostgreSQL, Redis, and LLM providers.
+An enterprise-grade, event-driven **Autonomous AI Sales / Go-To-Market (GTM) Architecture** built with FastAPI, PostgreSQL, SQLAlchemy Async, Redis, and a deterministic capability orchestration loop.
 
-This repository is the **foundation layer** — the persistent state, configuration, logging, and infrastructure that all future autonomous agents, workers, and integrations will build on.
+> "The system is designed so specialized GTM capabilities are replaceable providers. Oxygen is the decision/orchestration layer, not the implementation of every GTM capability."
 
----
-
-## Architecture Overview
-
-```
-Lead Sources
-    ↓
-Data Processing & Enrichment
-    ↓
-CompAI CRM / Persistent State  ← YOU ARE HERE (Step 1)
-    ↓
-Oxygen Orchestrator
-    ↓
-Guardrails
-    ↓
-Execution Tools
-    ↓
-Prospect
-    ↓
-Events / Webhooks
-    ↓
-CRM Update
-    ↓
-Oxygen again
-```
-
-**Supporting systems:** PostgreSQL · Redis · LLM Providers · File Storage · Monitoring
+> "PostgreSQL CRM state and Task state are authoritative. Events provide the append-only feedback/audit stream."
 
 ---
 
-## Project Structure
+## 1. Complete Architecture Diagram
 
 ```
-gtm-architecture/
-├── app/
-│   ├── main.py                 # FastAPI application factory + lifespan
-│   ├── core/
-│   │   ├── config.py           # Pydantic-Settings configuration
-│   │   ├── logging.py          # Structured logging + request middleware
-│   │   ├── database.py         # SQLAlchemy async engine + session factory
-│   │   └── redis.py            # Redis async pool + health check
-│   ├── models/
-│   │   ├── __init__.py         # Re-exports all ORM models
-│   │   └── base.py             # Company, Person, Lead, Interaction, Task, Event
-│   ├── schemas/
-│   │   └── __init__.py         # Pydantic I/O schemas (Create/Read/Update)
-│   ├── api/
-│   │   ├── __init__.py         # Aggregates all routers
-│   │   └── routes/
-│   │       └── health.py       # GET /health, /health/db, /health/redis
-│   ├── services/               # Business logic (to be built in Step 2+)
-│   ├── integrations/           # Provider interfaces (Apollo, LinkedIn, etc.)
-│   ├── agents/                 # Oxygen orchestrator + individual agents
-│   ├── events/                 # Domain event publishing + inbound webhooks
-│   ├── guardrails/             # Agent behaviour constraints
-│   ├── evals/                  # Quality measurement framework
-│   └── workers/                # Background task workers
-├── alembic/
-│   ├── env.py                  # Async-aware migration environment
-│   └── script.py.mako          # Migration file template
-├── tests/
-│   ├── conftest.py             # Fixtures + environment setup
-│   ├── test_health.py          # App startup + /health tests
-│   ├── test_models.py          # ORM + Pydantic schema tests
-│   └── test_connectivity.py    # DB + Redis health probe tests
-├── alembic.ini                 # Alembic configuration
-├── docker-compose.yml          # PostgreSQL + Redis + API
-├── Dockerfile                  # Multi-stage Python 3.13 image
-├── requirements.txt            # Python dependencies
-├── pyproject.toml              # pytest configuration
-├── .env.example                # Environment variable template
-└── .env                        # Local dev values (not committed)
+                 Lead Sources (Apollo, Scout, CSV, Inbound)
+                                      ↓
+                         Lead Ingestion & Normalization
+                                      ↓
+                       CompAI CRM (PostgreSQL Authoritative)
+                                      ↓
+                     Identity Resolution & Enrichment Layer
+                                      ↓
+                          Oxygen Orchestrator
+                       (Context Gathering & Decision)
+                                      ↓
+                                  Decision
+                                      ↓
+                        Guardrails & Policy Engine
+                          (Authorize / Block Action)
+                                      ↓
+                               Task Created
+                      (Persistent Handoff Boundary)
+                                      ↓
+                           Execution Registry
+                      (Provider Discovery & Selection)
+                                      ↓
+                       Specialized GTM Capability Providers
+                 (Research, Outreach, Meetings, CRM Mutation)
+                                      ↓
+                            Task Execution Result
+                                      ↓
+                           Append-Only Event Stream
+                      (task_completed, task_failed, etc.)
+                                      ↓
+                        RevOps & Evaluation Layer
+                     (Cursor-based Stream & Evals Runner)
+                                      ↓
+                       CompAI CRM / Feedback Update
+                                      ↓
+                         Oxygen Orchestration Loop
+                                      ↺
 ```
 
 ---
 
-## Local Setup
+## 2. Component Responsibilities
+
+| Subsystem | Responsibility | Persistent Boundary |
+| :--- | :--- | :--- |
+| **Ingestion Layer** | Normalizes external source payloads, prevents duplicate contacts, maps to CRM entities. | `leads`, `companies`, `people` |
+| **CRM Layer** | Authoritative database storing companies, persons, leads, tasks, interactions, events. | PostgreSQL |
+| **Identity & Enrichment** | Deterministic deduplication, company domain resolution, contact enrichment. | `companies`, `people` |
+| **Oxygen Orchestrator** | Coordinates context gathering from CRM and events; evaluates decisions. Does NOT execute actions. | Emits `oxygen_decision` events |
+| **Guardrails & Policy** | Formal authorization boundary evaluating decisions before Task creation. Fails closed. | Emits `guardrail_allowed` or `guardrail_blocked` |
+| **Task Model** | Immutable/stateful handoff unit representing approved actions (`pending` -> `in_progress` -> `completed`/`failed`). | `tasks` table with row locking |
+| **Execution Registry & Executor** | Dispatches tasks to registered capability providers with concurrency locks and idempotency. | Emits `task_started`, `task_completed`, `task_failed` |
+| **GTM Providers** | Replaceable pluggable capability adapters (prospect research, outreach drafting/sim, meetings, CRM updates). | Standardized `ExecutionResult` |
+| **Event Stream** | Strictly append-only audit trail and reactive trigger mechanism. Historical events are never mutated. | `events` table |
+| **RevOps Layer** | Durable cursor-based event processor, real-time analytics aggregation, chronological lead timelines. | `event_processing_states` |
+| **Evals Framework** | Isolated test-suite runner verifying system behavior against 10 core invariant test cases. | Deterministic, non-destructive |
+
+---
+
+## 3. Data Flow & Event Flow
+
+### Data Flow
+1. **Ingest Lead**: An external webhook or batch source pushes raw prospect information. Ingestion resolves Company and Person identities idempotently and assigns a Lead.
+2. **Enrichment**: Enrichment providers enrich company intelligence (industry, tech stack, size) and contact attributes (title, department).
+3. **Oxygen Context Gathering**: `OxygenContextBuilder` loads the lead, associated person, company, existing tasks, and chronological events into an immutable `OxygenContext`.
+4. **Oxygen Decision**: `DeterministicDecisionEngine` analyzes the context and determines the next logical action (e.g., `qualify_lead`, `enrich_company`, `wait`, `no_action`).
+5. **Policy Authorization**: `GuardrailEvaluator` passes the decision and context through 9 deterministic safety rules.
+6. **Task Creation**: On approval, a persistent `Task` is created in PostgreSQL with status `pending`.
+7. **Execution**: `TaskExecutor` locks the row (`with_for_update`), transitions status to `in_progress`, resolves the registered provider from `ExecutionRegistry`, executes, records the result, and sets status to `completed` or `failed`.
+8. **Feedback Loop**: Events trigger the `EventProcessor`, advancing the durable cursor in `event_processing_states` and feeding back into subsequent Oxygen decision cycles.
+
+### Event Flow
+- Append-only events emitted throughout lifecycle:
+  - `lead_ingested`
+  - `company_enriched` / `person_enriched` / `enrichment_completed`
+  - `oxygen_decision`
+  - `guardrail_allowed` / `guardrail_blocked`
+  - `task_started` / `task_completed` / `task_failed`
+  - `prospect_researched` / `outreach_drafted` / `outreach_simulated` / `meeting_booking_simulated` / `crm_updated`
+
+---
+
+## 4. Provider Replaceability Strategy
+
+Every GTM capability implements the `ExecutionProvider` interface:
+```python
+class ExecutionProvider(ABC):
+    @property
+    @abstractmethod
+    def provider_name(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def supported_task_types(self) -> list[str]: ...
+
+    @abstractmethod
+    async def execute(self, context: ExecutionContext, session: Optional[AsyncSession] = None) -> ExecutionResult: ...
+```
+
+To replace any mock provider with a real external provider (e.g., Apollo, SendGrid, Calendly, Salesforce):
+1. Implement the provider conforming to `ExecutionProvider`.
+2. Register the provider instance in `ExecutionRegistry.register_provider(new_provider)`.
+3. **Zero changes** are required to Oxygen, Guardrails, CRM models, TaskExecutor, RevOps, or Evals.
+
+---
+
+## 5. Current Mock-Only Safeguards & Limitations
+
+To guarantee safety during autonomous operation:
+- **No Real Outbound Email**: Outreach send capability is strictly simulated (`mode: "simulation"`). No SMTP, SendGrid, or Gmail connections exist.
+- **No Real LinkedIn Messaging**: No browser automation or private APIs.
+- **No Real Meeting Booking**: Calendar invites and meetings are recorded as simulated interactions without calling Google Calendar or Calendly.
+- **No Real Prospecting / Scraping**: Prospect research uses deterministic mock responses labeled `mock-v1`.
+- **No Real Purchasing or Financial APIs**: The system cannot perform financial transactions.
+- **No Autonomous Infinite Loops**: Execution loops are bounded and triggerable on demand or by scheduled worker invocations.
+
+---
+
+## 6. How to Run Locally
 
 ### Prerequisites
-
 - Python 3.11+
-- PostgreSQL 15+ running locally (or Docker)
-- Redis 7+ running locally (or Docker)
+- PostgreSQL running at `localhost:5432` (`gtm_db`)
+- Redis running at `localhost:6379`
 
-### Option A — Docker Compose (recommended)
-
+### Environment Configuration
+Create `.env` or use environment variables:
 ```bash
-# 1. Copy and edit env file
-cp .env.example .env
-
-# 2. Start everything (PostgreSQL + Redis + API + migrations)
-docker compose up --build
-
-# API is now available at http://localhost:8000
+ENVIRONMENT=development
+LOG_LEVEL=INFO
+DATABASE_URL=postgresql://gtm_user:gtm_password@localhost:5432/gtm_db
+REDIS_URL=redis://localhost:6379/0
+SECRET_KEY=dev-secret-key-change-in-prod
 ```
 
-### Option B — Local Python
-
+### Database Migrations
+Apply all migrations to head:
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Copy and edit env file
-cp .env.example .env
-# Edit .env with your local PostgreSQL and Redis URLs
-
-# 3. Run database migrations
 alembic upgrade head
-
-# 4. Start the API
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
----
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | ✅ | — | PostgreSQL connection string |
-| `REDIS_URL` | ✅ | `redis://localhost:6379/0` | Redis connection string |
-| `ENVIRONMENT` | — | `development` | `development` / `staging` / `production` |
-| `LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `OPENAI_API_KEY` | — | `""` | OpenAI API key (used later) |
-| `ANTHROPIC_API_KEY` | — | `""` | Anthropic API key (used later) |
-| `SECRET_KEY` | — | (insecure default) | JWT signing key — **change in production** |
-
-See `.env.example` for a complete template.
-
----
-
-## Database Migrations
-
-```bash
-# Apply all migrations (create tables)
-alembic upgrade head
-
-# Roll back the last migration
-alembic downgrade -1
-
-# Generate a new migration from model changes
-alembic revision --autogenerate -m "describe your change"
-
-# Show current migration state
 alembic current
-
-# Show migration history
-alembic history --verbose
 ```
 
----
-
-## Health Checks
-
+### Running the Application
 ```bash
-# API liveness
-curl http://localhost:8000/health
-
-# PostgreSQL connectivity
-curl http://localhost:8000/health/db
-
-# Redis connectivity
-curl http://localhost:8000/health/redis
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Expected responses:
-
-```json
-// /health
-{"status": "ok", "app": "GTM Autonomous System", "version": "0.1.0", "environment": "development"}
-
-// /health/db  (when PostgreSQL is up)
-{"status": "ok", "detail": "PostgreSQL reachable"}
-
-// /health/redis  (when Redis is up)
-{"status": "ok", "detail": "Redis reachable"}
-```
+Interactive API documentation available at `http://localhost:8000/docs`.
 
 ---
 
-## Running Tests
+## 7. How to Run Tests
 
+Run the complete test suite (with full database isolation and automatic fixture cleanup):
 ```bash
-# Run all tests
-pytest
+python -m pytest -v
+```
 
-# Run with coverage
-pytest --cov=app
-
-# Run only health tests
-pytest tests/test_health.py -v
-
-# Run only model tests
-pytest tests/test_models.py -v
+Run targeted subsystem suites:
+```bash
+python -m pytest tests/test_guardrails.py -v
+python -m pytest tests/test_gtm_capabilities.py -v
+python -m pytest tests/test_revops.py -v
+python -m pytest tests/test_evals.py -v
+python -m pytest tests/test_end_to_end_gtm.py -v
+python -m pytest tests/test_oxygen.py -q
+python -m pytest tests/test_execution.py -q
 ```
 
 ---
 
-## API Documentation
+## 8. API Overview
 
-When running locally, interactive API docs are available at:
+### Health Probes
+- `GET /health` — Application liveness
+- `GET /health/db` — PostgreSQL connectivity check
+- `GET /health/redis` — Redis connection pool check
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
+### Lead Ingestion & Normalization
+- `POST /api/v1/leads/ingest` — Ingest lead payload with deduplication
+- `GET /api/v1/leads/providers` — List registered lead source providers
 
----
+### Enrichment Layer
+- `POST /api/v1/enrichment/company/{company_id}` — Enrich company
+- `POST /api/v1/enrichment/person/{person_id}` — Enrich person
+- `POST /api/v1/enrichment/lead/{lead_id}` — Enrich lead
+- `GET /api/v1/enrichment/providers` — List enrichment providers
 
-## Key Design Decisions
+### Oxygen Orchestration
+- `POST /api/v1/oxygen/leads/{lead_id}/decide` — Pure read-only decision evaluation
+- `POST /api/v1/oxygen/leads/{lead_id}/orchestrate` — Full decision -> guardrails -> task pipeline
+- `GET /api/v1/oxygen/capabilities` — List registered Oxygen capabilities
 
-### 1. Domain logic is separated from external integrations
-Services and agents call **integration interfaces**, not provider SDKs directly.
-This means you can swap Apollo for another lead source without touching the orchestration logic.
+### Execution Layer
+- `POST /api/v1/execution/tasks/{task_id}/execute` — Row-locked task execution
+- `GET /api/v1/execution/tasks/{task_id}` — Inspect task status and execution result
+- `GET /api/v1/execution/providers` — List registered execution providers
 
-### 2. All external capabilities are behind provider interfaces
-Future providers (Apollo, BillionMail, LinkedIn, Calendly, etc.) will implement interfaces defined in `app/integrations/`.
+### Guardrails & Policy
+- `GET /api/v1/guardrails/rules` — List all 9 policy enforcement rules
+- `POST /api/v1/guardrails/evaluate` — Diagnostic policy evaluation endpoint
 
-### 3. Events are immutable (append-only)
-The `events` table is a domain event log. Events are never updated, only appended.
-The Oxygen orchestrator reads events to decide what to do next.
+### RevOps & Analytics
+- `GET /api/v1/revops/metrics` — Aggregate GTM operational metrics
+- `GET /api/v1/revops/events` — Query append-only event stream (filterable)
+- `GET /api/v1/revops/leads/{lead_id}/timeline` — Chronological lead event/interaction timeline
 
-### 4. Async throughout
-SQLAlchemy uses the `asyncpg` driver. Redis uses `redis.asyncio`.
-This maximises throughput for I/O-bound agentic workloads.
-
-### 5. Structured logging with request tracing
-Every request gets a unique `X-Request-ID` header.
-All log entries in the request scope include this ID for correlation.
-
----
-
----
-
-## Execution Layer
-
-The **Execution Layer** provides the bridge between strategic orchestration and practical operational work:
-
-- **Oxygen decides**: Oxygen deterministically evaluates CRM context and issues high-level decisions.
-- **Task is the handoff boundary**: Decisions are materialized into persistent `Task` records.
-- **ExecutionRegistry selects providers**: Matches task types and capabilities (`qualify_lead`, `enrich_company`, `enrich_person`) to concrete execution providers or adapters.
-- **TaskExecutor executes**: Loads tasks with row-level database locking, validates state transitions, manages the lifecycle (`pending` → `in_progress` → `completed` / `failed`), and safely commits results.
-- **Task state is authoritative in PostgreSQL**: Redis is available for caching and transport, but PostgreSQL remains the authoritative single source of truth for task status, payloads, and results.
-- **Events report execution results**: Append-only events (`task_started`, `task_completed`, `task_failed`) record execution audit trails and payloads.
-- **Providers are replaceable**: All execution workers implement the provider-agnostic `ExecutionProvider` interface.
-- **Current providers are deterministic/mock**: Includes `MockLeadQualificationProvider`, `CompanyEnrichmentExecutionAdapter`, and `PersonEnrichmentExecutionAdapter`.
-- **Real external execution is intentionally deferred**: Outbound email, LinkedIn messaging, and external API calls are safely deferred to subsequent phases.
-
-### Execution Request Flow
-
-```
-Decision
-   ↓
- Task
-   ↓
-Registry
-   ↓
-Provider
-   ↓
- Result
-   ↓
- Event
-   ↓
-CRM / Oxygen feedback loop
-```
-
----
-
-## What's Next (Step 2+)
-
-- Lead CRUD API (Company, Person, Lead endpoints)
-- LeadService + basic lead lifecycle state machine
-- Oxygen Orchestrator skeleton
-- First integration interface definitions (LeadSource, EnrichmentProvider)
-- Task queue worker infrastructure (Redis-backed)
-- Guardrails framework
-
+### Evaluation Framework
+- `GET /api/v1/evals/cases` — List 10 core evaluation invariant test cases
+- `POST /api/v1/evals/run` — Run isolated evaluation suite and generate report
+- `GET /api/v1/evals/runs/{run_id}` — Retrieve evaluation run report by UUID

@@ -1,22 +1,42 @@
-"""
-Guardrails package.
+"""Guardrails & Policy Enforcement package."""
 
-Guardrails enforce boundaries on autonomous agent behaviour before
-any action is taken. They are called by the Oxygen orchestrator and
-individual agents.
+from app.guardrails.evaluator import GuardrailEvaluator
+from app.guardrails.interfaces import GuardrailRuleEvaluator
+from app.guardrails.models import (
+    GuardrailContext,
+    GuardrailResult,
+    GuardrailRule,
+    GuardrailSeverity,
+)
+from app.guardrails.registry import GuardrailRegistry, guardrail_registry
+from app.guardrails.rules import (
+    DuplicateActiveTaskRule,
+    ExecutionCapabilityNotRegisteredRule,
+    MissingRequiredCRMEntityRule,
+    MissingRequiredTaskPayloadRule,
+    MissingTargetRule,
+    SafeValidInternalExecutionRule,
+    TaskAlreadyCompletedRule,
+    UnknownCapabilityRule,
+    UnsupportedTaskTypeRule,
+)
 
-Planned guardrail types:
-    RateLimitGuardrail      — prevent spamming a single prospect
-    ContentGuardrail        — LLM-as-judge for outreach quality/tone
-    ComplianceGuardrail     — GDPR/CAN-SPAM opt-out enforcement
-    SpendGuardrail          — cap LLM token spend per run
-    ContactFrequencyGuardrail — enforce contact frequency caps
-
-Guardrails MUST be synchronous decisions (allow/deny + reason).
-They should NOT have side effects.
-
-A guardrail returns one of:
-    GuardrailDecision.ALLOW
-    GuardrailDecision.DENY(reason: str)
-    GuardrailDecision.REQUIRE_HUMAN_REVIEW(reason: str)
-"""
+__all__ = [
+    "GuardrailContext",
+    "GuardrailResult",
+    "GuardrailRule",
+    "GuardrailSeverity",
+    "GuardrailRuleEvaluator",
+    "GuardrailRegistry",
+    "guardrail_registry",
+    "GuardrailEvaluator",
+    "UnknownCapabilityRule",
+    "MissingTargetRule",
+    "MissingRequiredTaskPayloadRule",
+    "DuplicateActiveTaskRule",
+    "TaskAlreadyCompletedRule",
+    "ExecutionCapabilityNotRegisteredRule",
+    "UnsupportedTaskTypeRule",
+    "MissingRequiredCRMEntityRule",
+    "SafeValidInternalExecutionRule",
+]

@@ -13,6 +13,7 @@ from app.models.base import (  # noqa: F401
     Lead,
     Person,
     Task,
+    EventProcessingState,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "Lead",
     "Person",
     "Task",
+    "EventProcessingState",
 ]

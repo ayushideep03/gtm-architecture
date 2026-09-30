@@ -45,12 +45,31 @@ def client(app):
         yield c
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_session():
+    """Ensure engine and redis pool are disposed cleanly when pytest session ends."""
+    yield
+    import asyncio
+    from app.core.database import engine
+    from app.core.redis import close_redis_pool
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(close_redis_pool())
+        loop.run_until_complete(engine.dispose())
+    except Exception:
+        pass
+    finally:
+        loop.close()
+
+
 # ---------------------------------------------------------------------------
 # DB integration test isolation
 # ---------------------------------------------------------------------------
 
 # Tables in FK-safe deletion order (children before parents).
 _CLEANUP_TABLE_ORDER = [
+    "event_processing_states",
     "events",
     "interactions",
     "tasks",
@@ -123,6 +142,14 @@ def _db_isolation(request):
         "TestOxygenAPI",
         "TestExecutionWithDatabase",
         "TestExecutionAPI",
+        "TestGuardrailsWithDatabase",
+        "TestGuardrailsAPI",
+        "TestRevOpsWithDatabase",
+        "TestRevOpsAPI",
+        "TestEvalsWithDatabase",
+        "TestEvalsAPI",
+        "TestEndToEndGTM",
+        "TestGTMCapabilitiesWithDatabase",
     }
     if cls is None or cls.__name__ not in db_test_classes:
         yield

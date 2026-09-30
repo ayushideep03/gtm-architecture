@@ -44,3 +44,7 @@ __all__ = [
     "PersonEnrichmentExecutionAdapter",
     "execute_task",
 ]
+
+# Ensure GTM capability providers are registered
+import app.integrations.gtm  # noqa: F401
+

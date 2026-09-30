@@ -1,4 +1,4 @@
-﻿"""
+"""
 Oxygen Orchestrator.
 
 Coordinates context gathering, decision engine evaluation, capability validation,
@@ -6,7 +6,7 @@ task handoff, and decision event emission. Does not perform external actions.
 """
 
 import json
-from typing import Optional
+from typing import Any, Optional
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,10 +35,16 @@ class OxygenOrchestrator:
         context_builder: Optional[OxygenContextBuilder] = None,
         decision_engine: Optional[DecisionEngine] = None,
         registry: Optional[CapabilityRegistry] = None,
+        guardrail_evaluator: Optional[Any] = None,
     ) -> None:
         self.context_builder = context_builder or OxygenContextBuilder()
         self.decision_engine = decision_engine or DeterministicDecisionEngine()
         self.registry = registry or capability_registry
+        if guardrail_evaluator is None:
+            from app.guardrails.evaluator import GuardrailEvaluator
+            self.guardrail_evaluator = GuardrailEvaluator()
+        else:
+            self.guardrail_evaluator = guardrail_evaluator
 
     async def decide_only(
         self,
@@ -112,12 +118,68 @@ class OxygenOrchestrator:
                 decision.action = "wait"
                 decision.reason = f"Required capability '{decision.capability}' is currently unavailable"
 
-        # 4. Idempotency & Task Creation
+        # 4. Guardrail Evaluation & Policy Enforcement
         task: Optional[Task] = None
         task_created = False
 
         if decision.action not in ("wait", "no_action"):
-            # Check existing pending/in-progress tasks for this lead with the same task_type
+            guardrail_result = await self.guardrail_evaluator.evaluate_decision(
+                decision, context, session=db
+            )
+
+            if not guardrail_result.allowed:
+                logger.warning(
+                    "Guardrail BLOCKED Oxygen action %r for lead=%s: %s",
+                    decision.action,
+                    lead_id,
+                    guardrail_result.reason,
+                )
+                blocked_event = Event(
+                    lead_id=lead_id,
+                    event_type="guardrail_blocked",
+                    source="guardrails",
+                    payload=json.dumps({
+                        "lead_id": str(lead_id),
+                        "decision": decision.action,
+                        "capability": decision.capability,
+                        "task_type": decision.action,
+                        "allowed": False,
+                        "rule_ids": guardrail_result.rule_ids,
+                        "reason": guardrail_result.reason,
+                    }),
+                )
+                db.add(blocked_event)
+                await db.flush()
+
+                return DecisionOutcome(
+                    lead_id=lead_id,
+                    decision=decision,
+                    task_id=None,
+                    task_created=False,
+                    event_id=blocked_event.id,
+                    status="blocked",
+                    error=guardrail_result.reason,
+                )
+
+            # Record guardrail_allowed event
+            allowed_event = Event(
+                lead_id=lead_id,
+                event_type="guardrail_allowed",
+                source="guardrails",
+                payload=json.dumps({
+                    "lead_id": str(lead_id),
+                    "decision": decision.action,
+                    "capability": decision.capability,
+                    "task_type": decision.action,
+                    "allowed": True,
+                    "rule_ids": guardrail_result.rule_ids,
+                    "reason": guardrail_result.reason,
+                }),
+            )
+            db.add(allowed_event)
+            await db.flush()
+
+            # 5. Idempotent Task Creation
             already_scheduled = context.has_pending_task(decision.action)
             if not already_scheduled:
                 task = Task(

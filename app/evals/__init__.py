@@ -1,14 +1,18 @@
-"""
-Evals package.
+"""Evaluation Framework package."""
 
-The evaluation framework measures system quality across:
-    - Outreach quality (open rate, reply rate, positive sentiment)
-    - Qualification accuracy (meetings booked vs. leads contacted)
-    - Agent decision quality (LLM-as-judge on sampled decisions)
-    - Pipeline velocity (time from lead to meeting)
+from app.evals.cases import CORE_EVAL_CASES, get_all_eval_cases, get_eval_case
+from app.evals.metrics import summarize_eval_run
+from app.evals.models import EvalCase, EvalResult, EvalRun
+from app.evals.runner import EvalRunner, eval_runner
 
-Evals run asynchronously and write results to the database.
-They feed the RevOps learning loop.
-
-Nothing here yet — eval framework is implemented in a later step.
-"""
+__all__ = [
+    "EvalCase",
+    "EvalResult",
+    "EvalRun",
+    "CORE_EVAL_CASES",
+    "get_all_eval_cases",
+    "get_eval_case",
+    "EvalRunner",
+    "eval_runner",
+    "summarize_eval_run",
+]

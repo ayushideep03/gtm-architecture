@@ -167,6 +167,12 @@ class TaskExecutor:
         )
 
         # 6. Execute Provider
+        logger.info(
+            "Executing task [%s] type=%r with provider %r",
+            task.id,
+            task.task_type,
+            provider.provider_name,
+        )
         try:
             exec_result = await provider.execute(context, session=session)
         except Exception as exc:
@@ -188,6 +194,13 @@ class TaskExecutor:
         now = datetime.now(timezone.utc)
         task.completed_at = now
         task.updated_at = now
+
+        logger.info(
+            "Task [%s] execution finished with provider %r, success=%s",
+            task.id,
+            provider.provider_name,
+            exec_result.success,
+        )
 
         if exec_result.success:
             task.status = TaskStatus.COMPLETED.value
