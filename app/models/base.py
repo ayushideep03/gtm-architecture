@@ -69,7 +69,14 @@ INTERACTION_TYPE_VALUES = (
     "note",
 )
 
-TASK_STATUS_VALUES = ("pending", "in_progress", "done", "failed", "skipped")
+TASK_STATUS_VALUES = (
+    "pending",
+    "in_progress",
+    "done",
+    "completed",
+    "failed",
+    "skipped",
+)
 
 EVENT_TYPE_VALUES = (
     "lead_created",
@@ -81,7 +88,9 @@ EVENT_TYPE_VALUES = (
     "reply_received",
     "meeting_booked",
     "task_created",
+    "task_started",
     "task_completed",
+    "task_failed",
     "company_enriched",
     "person_enriched",
     "enrichment_completed",

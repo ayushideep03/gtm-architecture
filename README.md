@@ -235,6 +235,42 @@ All log entries in the request scope include this ID for correlation.
 
 ---
 
+---
+
+## Execution Layer
+
+The **Execution Layer** provides the bridge between strategic orchestration and practical operational work:
+
+- **Oxygen decides**: Oxygen deterministically evaluates CRM context and issues high-level decisions.
+- **Task is the handoff boundary**: Decisions are materialized into persistent `Task` records.
+- **ExecutionRegistry selects providers**: Matches task types and capabilities (`qualify_lead`, `enrich_company`, `enrich_person`) to concrete execution providers or adapters.
+- **TaskExecutor executes**: Loads tasks with row-level database locking, validates state transitions, manages the lifecycle (`pending` → `in_progress` → `completed` / `failed`), and safely commits results.
+- **Task state is authoritative in PostgreSQL**: Redis is available for caching and transport, but PostgreSQL remains the authoritative single source of truth for task status, payloads, and results.
+- **Events report execution results**: Append-only events (`task_started`, `task_completed`, `task_failed`) record execution audit trails and payloads.
+- **Providers are replaceable**: All execution workers implement the provider-agnostic `ExecutionProvider` interface.
+- **Current providers are deterministic/mock**: Includes `MockLeadQualificationProvider`, `CompanyEnrichmentExecutionAdapter`, and `PersonEnrichmentExecutionAdapter`.
+- **Real external execution is intentionally deferred**: Outbound email, LinkedIn messaging, and external API calls are safely deferred to subsequent phases.
+
+### Execution Request Flow
+
+```
+Decision
+   ↓
+ Task
+   ↓
+Registry
+   ↓
+Provider
+   ↓
+ Result
+   ↓
+ Event
+   ↓
+CRM / Oxygen feedback loop
+```
+
+---
+
 ## What's Next (Step 2+)
 
 - Lead CRUD API (Company, Person, Lead endpoints)
@@ -243,3 +279,4 @@ All log entries in the request scope include this ID for correlation.
 - First integration interface definitions (LeadSource, EnrichmentProvider)
 - Task queue worker infrastructure (Redis-backed)
 - Guardrails framework
+

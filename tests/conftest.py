@@ -121,6 +121,8 @@ def _db_isolation(request):
         "TestEnrichmentWithDatabase",
         "TestOxygenWithDatabase",
         "TestOxygenAPI",
+        "TestExecutionWithDatabase",
+        "TestExecutionAPI",
     }
     if cls is None or cls.__name__ not in db_test_classes:
         yield
