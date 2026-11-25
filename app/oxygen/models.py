@@ -95,7 +95,11 @@ class OxygenContext:
         return any(t.task_type == task_type for t in self.pending_tasks)
 
     def has_completed_task(self, task_type: str) -> bool:
-        return any(t.task_type == task_type and t.status == "done" for t in self.tasks)
+        # The executor marks finished tasks "completed"; older rows may use "done".
+        return any(
+            t.task_type == task_type and t.status in ("done", "completed")
+            for t in self.tasks
+        )
 
     def latest_event(self, event_type: str) -> Optional[Event]:
         for e in self.events:

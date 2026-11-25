@@ -131,10 +131,58 @@ To guarantee safety during autonomous operation:
 
 ## 6. How to Run Locally
 
+The project runs the same on macOS, Windows and Linux. Only the commands for
+installing services and activating the virtualenv differ.
+
 ### Prerequisites
-- Python 3.11+
-- PostgreSQL running at `localhost:5432` (`gtm_db`)
+- Python 3.11+ (3.12 recommended)
+- PostgreSQL running at `localhost:5432` (`gtm_db`, user `gtm_user` / `gtm_password`)
 - Redis running at `localhost:6379`
+
+### Option A — Docker (easiest, identical on Mac & Windows)
+Install Docker Desktop, then:
+```bash
+docker compose up -d postgres redis   # just the databases
+# or: docker compose up --build       # databases + API on :8000
+```
+
+### Option B — Native services
+**macOS (Homebrew)**
+```bash
+brew install postgresql@16 redis
+brew services start postgresql@16
+brew services start redis
+psql postgres -c "CREATE USER gtm_user WITH PASSWORD 'gtm_password';"
+createdb -O gtm_user gtm_db
+```
+
+**Windows**
+Install PostgreSQL 16 from postgresql.org and Redis via Memurai or WSL
+(or use Docker, Option A), then in a terminal:
+```powershell
+psql -U postgres -c "CREATE USER gtm_user WITH PASSWORD 'gtm_password';"
+psql -U postgres -c "CREATE DATABASE gtm_db OWNER gtm_user;"
+```
+
+### Python environment
+**macOS / Linux**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+**Windows (PowerShell)**
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+> Line endings are normalised to LF by `.gitattributes`, so files edited on
+> either OS commit cleanly.
 
 ### Environment Configuration
 Create `.env` or use environment variables:
@@ -159,6 +207,19 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Interactive API documentation available at `http://localhost:8000/docs`.
+
+### Demo
+With the API running, in a second terminal:
+```bash
+python scripts/demo.py --reset
+```
+This walks one lead through ingest → Oxygen decision → guardrails → task →
+execution (enrich company, enrich person, qualify), then shows the safety
+checks, the lead's event timeline, RevOps metrics and the eval suite. It pauses
+between steps; add `--no-pause` to run straight through.
+
+`--reset` wipes and re-creates the **local** database so every run starts clean.
+Leave it off to keep existing data.
 
 ---
 
