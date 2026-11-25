@@ -444,37 +444,58 @@ def build_pdf(filename: str):
         "<b>5. Headless / API-Only</b>: There is no frontend user interface; interactions occur via Swagger / REST APIs.",
         body_style
     ))
+    story.append(Paragraph(
+        "<b>6. Autonomous Loop Ends at Qualification</b>: Oxygen's decision rules cover enrich company, enrich person "
+        "and qualify lead, then stop. The research, outreach drafting, outreach send and meeting booking providers are "
+        "implemented and tested individually, but Oxygen does not yet choose them, so a qualified lead does not "
+        "progress to outreach automatically.",
+        body_style
+    ))
+    story.append(Paragraph(
+        "<b>7. Re-ingesting Existing Contacts Creates Duplicate Leads</b>: Companies (by domain) and people (by email) "
+        "are de-duplicated, but each ingestion run creates a new <code>Lead</code> for the same person, so importing "
+        "the same source twice doubles the lead count.",
+        body_style
+    ))
     story.append(Spacer(1, 10))
 
     # 7. Required Improvements for Production
     story.append(Paragraph("7. Required Improvements & Production Roadmap", h1_style))
     story.append(Paragraph(
-        "<b>Priority 1: Connect Live External Providers</b><br/>"
+        "<b>Priority 1: Close the Known Functional Gaps</b><br/>"
+        "Extend <code>app/oxygen/decision.py</code> so that after <code>qualify_lead</code> completes Oxygen decides "
+        "<code>research_prospect</code>, <code>draft_outreach</code>, <code>send_outreach_simulation</code> and "
+        "<code>book_meeting_simulation</code> in turn, each gated by guardrails. De-duplicate leads in "
+        "<code>app/services/lead_ingestion.py</code> by reusing a person's existing open lead.",
+        body_style
+    ))
+    story.append(Paragraph(
+        "<b>Priority 2: Connect Live External Providers</b><br/>"
         "Because capabilities conform to <code>ExecutionProvider</code>, swapping mocks requires zero changes to core logic. "
         "Implement <code>SendGridOutreachProvider</code> (email), <code>ApolloLiveEnrichmentProvider</code> (data), "
         "and <code>GoogleCalendarMeetingProvider</code> (OAuth2 calendar integration).",
         body_style
     ))
     story.append(Paragraph(
-        "<b>Priority 2: Integrate Real LLM Decision & Drafting Agents</b><br/>"
+        "<b>Priority 3: Integrate Real LLM Decision & Drafting Agents</b><br/>"
         "Replace <code>DeterministicDecisionEngine</code> with an LLM engine utilizing OpenAI / Anthropic structured tool calling. "
         "Add prompt injection defenses, sentiment verification, and compliance checks inside <code>app/guardrails/</code>.",
         body_style
     ))
     story.append(Paragraph(
-        "<b>Priority 3: Introduce Distributed Worker Execution (Celery / Temporal / ARQ)</b><br/>"
+        "<b>Priority 4: Introduce Distributed Worker Execution (Celery / Temporal / ARQ)</b><br/>"
         "Deploy background workers to claim pending tasks and process event queues asynchronously. "
         "Add automated recurring cron schedules to run <code>GtmOrchestrationService.execute_cycle()</code> on newly ingested leads.",
         body_style
     ))
     story.append(Paragraph(
-        "<b>Priority 4: Authentication, Authorization & Multi-Tenancy</b><br/>"
+        "<b>Priority 5: Authentication, Authorization & Multi-Tenancy</b><br/>"
         "Implement JWT/API key authentication middleware and attach <code>tenant_id</code> foreign keys to all CRM models "
         "to ensure enterprise-grade data isolation across multiple client accounts.",
         body_style
     ))
     story.append(Paragraph(
-        "<b>Priority 5: Web UI / Human-in-the-Loop RevOps Dashboard</b><br/>"
+        "<b>Priority 6: Web UI / Human-in-the-Loop RevOps Dashboard</b><br/>"
         "Build a Next.js / React interface displaying real-time metrics, lead timelines, and a review queue "
         "allowing sales reps to approve or edit AI-generated outreach drafts before sending.",
         body_style
@@ -514,10 +535,6 @@ def build_pdf(filename: str):
 
 
 if __name__ == "__main__":
-    out_pdf = r"c:\Users\Ayushideep\Documents\GTM_Architecture_Handover_Guide.pdf"
+    # Writes the PDF next to this script; works on macOS, Linux and Windows.
+    out_pdf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "GTM_Architecture_Handover_Guide.pdf")
     build_pdf(out_pdf)
-    # Also write a copy directly in the project folder
-    local_pdf = r"c:\Users\Ayushideep\Documents\GTM architecture\GTM_Architecture_Handover_Guide.pdf"
-    import shutil
-    shutil.copyfile(out_pdf, local_pdf)
-    print(f"Copied to: {local_pdf}")

@@ -210,6 +210,11 @@ While the architectural foundation is complete and production-grade, the followi
    - The API currently does not enforce user authentication (JWT, API keys) or organization-level tenant partitioning.
 5. **Headless / API-Only**:
    - There is no frontend user interface or dashboard; all interactions occur via REST endpoints or programmatic service calls.
+6. **Autonomous Loop Ends at Qualification**:
+   - Oxygen's decision rules currently cover enrich company → enrich person → qualify lead, then stop (`no_action`).
+   - The research, outreach drafting, outreach send and meeting booking providers are implemented and tested individually, but Oxygen does not yet choose them, so a qualified lead does not progress to outreach automatically.
+7. **Re-ingesting Existing Contacts Creates Duplicate Leads**:
+   - Companies (by domain) and people (by email) are de-duplicated correctly, but every ingestion run creates a new `Lead` for the same person. Running the same import twice doubles the lead count.
 
 ---
 
@@ -217,25 +222,29 @@ While the architectural foundation is complete and production-grade, the followi
 
 Here is the recommended roadmap to take this architecture to full commercial production:
 
-### Priority 1: Connect Live External Providers (Provider Plug-ins)
+### Priority 1: Close the Known Functional Gaps
+- **Extend the decision engine** (`app/oxygen/decision.py`): after `qualify_lead` completes, decide `research_prospect` → `draft_outreach` → `send_outreach_simulation` → `book_meeting_simulation`, each gated by guardrails and the existing pending/completed-task checks.
+- **De-duplicate leads on ingestion** (`app/services/lead_ingestion.py`): reuse the person's existing open lead instead of creating a new one.
+
+### Priority 2: Connect Live External Providers (Provider Plug-ins)
 Because the system is designed around the `ExecutionProvider` interface, you can swap mocks for real providers without altering CRM, Oxygen, Guardrails, or Tasks:
 - **Email Sending**: Implement a `SendGridOutreachProvider` or `ResendOutreachProvider` conforming to `ExecutionProvider`.
 - **Enrichment**: Implement an `ApolloLiveEnrichmentProvider` calling the official Apollo Search & Enrichment API.
 - **Meeting Scheduling**: Implement a `CalendlyMeetingProvider` or `GoogleCalendarMeetingProvider` using OAuth2.
 
-### Priority 2: Introduce Real LLM Decision & Drafting Agents
+### Priority 3: Introduce Real LLM Decision & Drafting Agents
 - Replace or augment `DeterministicDecisionEngine` with an `LLMDecisionEngine` utilizing structured outputs (e.g., OpenAI Function Calling / Pydantic models).
 - Add prompt guardrails (input sanitization, prompt injection defenses, sentiment verification) inside the `app/guardrails/` package.
 
-### Priority 3: Add Distributed Worker Execution (Celery / Temporal / ARQ)
+### Priority 4: Add Distributed Worker Execution (Celery / Temporal / ARQ)
 - Set up a background worker daemon to poll `tasks` in `pending` status or consume events from Redis / PostgreSQL LISTEN-NOTIFY.
 - Configure recurring cron tasks to run `GtmOrchestrationService.execute_cycle()` on new leads automatically.
 
-### Priority 4: Authentication, Authorization & Multi-Tenancy
+### Priority 5: Authentication, Authorization & Multi-Tenancy
 - Add FastAPI dependencies for API Key / JWT verification (`OAuth2PasswordBearer`).
 - Introduce an `organizations` table and add `tenant_id` to `companies`, `people`, `leads`, and `events` for strict multi-tenant data isolation.
 
-### Priority 5: Web UI / RevOps Dashboard
+### Priority 6: Web UI / RevOps Dashboard
 - Build a Next.js / React dashboard connecting to `/api/v1/revops/metrics`, `/api/v1/revops/events`, and `/api/v1/revops/leads/{lead_id}/timeline`.
 - Allow human-in-the-loop review of drafted outreach before approving task execution.
 
@@ -252,4 +261,5 @@ Because the system is designed around the `ExecutionProvider` interface, you can
 - `app/revops/processor.py`: PostgreSQL cursor-based event processor.
 - `app/evals/runner.py`: Deterministic test runner for behavioral invariants.
 - `app/services/gtm_orchestration.py`: End-to-end autonomous GTM cycle runner.
-- `tests/`: 227 comprehensive automated test cases.
+- `tests/`: 227 automated test cases (222 pass, 5 skipped).
+- `scripts/demo.py`: Live end-to-end demo against the running API (`python scripts/demo.py --reset`).
