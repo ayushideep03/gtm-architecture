@@ -68,8 +68,10 @@ async def build_prospect_memory(db: AsyncSession, lead_id: uuid.UUID, *, history
     decisions = await decisions_for_lead(db, lead_id, limit=20)
     work = await open_work_for_lead(db, lead_id)
     compliance = await check_contact_allowed(db, lead)
+    pipeline = await _pipeline_state(db, lead)
 
     return {
+        **pipeline,
         "lead": _row(lead),
         "person": _row(person),
         "company": _row(company),
@@ -124,4 +126,29 @@ async def build_prospect_memory(db: AsyncSession, lead_id: uuid.UUID, *, history
             for e in events
         ],
         "compliance": compliance.as_dict(),
+    }
+
+
+async def _pipeline_state(db: AsyncSession, lead: Lead) -> dict:
+    """Campaign, follow-up schedule, meetings and drafts for this lead (the campaign layer)."""
+    from app.models.pipeline import Campaign, Draft, FollowUp, Meeting
+    from app.pipeline import followups as fu, meetings as mt, drafts as dr
+    campaign = await db.get(Campaign, lead.campaign_id) if lead.campaign_id else None
+    f_rows = (await db.execute(select(FollowUp).where(FollowUp.lead_id == lead.id).order_by(FollowUp.step))).scalars().all()
+    m_rows = (await db.execute(select(Meeting).where(Meeting.lead_id == lead.id)
+                               .order_by(Meeting.created_at.desc()))).scalars().all()
+    d_rows = (await db.execute(select(Draft).where(Draft.lead_id == lead.id)
+                               .order_by(Draft.created_at.desc()).limit(10))).scalars().all()
+    return {
+        "campaign": None if campaign is None else {
+            "id": str(campaign.id), "name": campaign.name, "status": campaign.status, "offer": campaign.offer,
+            "value_points": [v if isinstance(v, str) else v.get("topic") for v in campaign.value_points or []],
+            "icp": campaign.icp, "sequence": campaign.sequence},
+        "follow_ups": [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in fu.view(f).items()}
+                       for f in f_rows],
+        "meetings": [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in mt.view(m).items()
+                      if k in ("id", "status", "title", "start_at", "proposed_slots", "provider", "updated_at")}
+                     for m in m_rows],
+        "drafts": [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in dr.view(d).items()
+                    if k in ("id", "kind", "step", "version", "status", "subject", "source_task_id")} for d in d_rows],
     }

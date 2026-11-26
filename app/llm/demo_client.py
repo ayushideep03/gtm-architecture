@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 MODEL = "scripted-demo-playbook"
+SIGNAL_KINDS = ("brief", "research", "intent_signal", "news", "hiring", "technology", "expansion", "buying_signal",
+                "digital_transformation", "challenge")
 _SENIOR = re.compile(r"\b(vp|vice president|head|chief|cro|ceo|coo|founder|director)\b", re.I)
 
 
@@ -64,6 +66,7 @@ class ScriptedDemoClient:
             "qualification": self._qualify,
             "outreach_draft": self._draft,
             "reply_classification": self._reply,
+            "reply_draft": self._reply_draft,
         }.get(schema_name)
         if handler is None:
             from app.llm.base import LLMError
@@ -108,6 +111,14 @@ class ScriptedDemoClient:
 
         replies = [i for i in inter if i["direction"] == "inbound" and i["type"] == "email_received"]
         classified = [f for f in findings if f["kind"] == "reply_analysis"]
+        campaign = d.get("campaign") or {}
+        meetings = d.get("meetings") or []
+        follow_ups = d.get("follow_ups") or []
+        if campaign.get("status") == "stopped":
+            return out("stop", f"Campaign '{campaign.get('name')}' was stopped; no further outreach.", conf=0.95,
+                       worth=False)
+        if campaign.get("status") == "paused":
+            return out("wait", f"Campaign '{campaign.get('name')}' is paused.", wait=6, conf=0.95)
         if comp.get("suppressed"):
             return out("stop", "The prospect is suppressed (opted out or bounced); outreach must end.",
                        conf=0.98, worth=False, expected="No further contact.")
@@ -117,12 +128,51 @@ class ScriptedDemoClient:
         if lead.get("status") == "disqualified":
             return out("stop", "Qualification found the prospect outside the ideal customer profile.",
                        refs=[f["id"] for f in findings if f["kind"] == "qualification"][:1], conf=0.85, worth=False)
+        m_latest = meetings[0] if meetings else None
+        if m_latest and m_latest["status"] in ("declined", "cancelled") and lead.get("status") != "meeting_booked":
+            return out("escalate", "The prospect declined the proposed meeting; a person should decide the next step.",
+                       refs=[replies[0]["id"]] if replies else None, conf=0.8)
+        if m_latest and m_latest["status"] == "reschedule_requested" and "book_meeting" in allowed \
+                and not open_("book_meeting"):
+            return out("book_meeting", "The prospect asked for a different time; propose new slots.",
+                       channel="meeting", conf=0.84,
+                       params={"topic": m_latest.get("title") or f"Discovery call — {company.get('name')}",
+                               "duration_minutes": 30}, expected="Prospect accepts one of the new slots.")
         if replies:
             latest = classified[0] if classified else None
             cat = (latest["summary"].split(":", 1)[0] if latest else "unclassified")
             refs = [replies[0]["id"]] + ([latest["id"]] if latest else [])
+            reply_at = replies[0].get("occurred_at") or ""
+            if cat in ("question", "objection"):
+                answers = [t for t in tasks if t["capability"] == "draft_reply"
+                           and (t.get("completed_at") or "") >= reply_at and t["status"] in ("completed", "done")]
+                if not answers:
+                    if "draft_reply" in allowed and not open_("draft_reply"):
+                        return out("draft_reply", f"The prospect raised a {cat}; draft an answer from the approved "
+                                                  "knowledge base (or escalate if it is not covered).",
+                                   refs=refs, conf=0.82, expected="A grounded reply for human approval.")
+                    return out("escalate", f"The prospect raised a {cat} and no answer can be drafted; a person "
+                                           "should reply.", refs=refs, conf=0.7)
+                ans = answers[0]
+                if not re.search(r'"supported":\s*true', ans.get("result") or ""):
+                    return out("escalate", "The question is not covered by the approved knowledge base; a person "
+                                           "must answer rather than Oxygen guessing.", refs=refs + [ans["id"]],
+                               conf=0.9, expected="A person answers the prospect.")
+                sent_answer = any(t["capability"] == "send_email" and ans["id"] in (t.get("result") or "") +
+                                  json.dumps(t.get("payload") or {}) for t in tasks)
+                if open_("send_email"):
+                    return out("wait", "The drafted answer is waiting for approval.", wait=4, conf=0.9)
+                if not sent_answer and "send_email" in allowed:
+                    return out("send_email", "A knowledge-base answer is ready; propose sending it (human approval "
+                                             "required).", refs=refs + [ans["id"]], channel="email",
+                               params={"draft_task_id": ans["id"]}, conf=0.8,
+                               expected="The prospect's question is answered.")
+                return out("wait", "Answer sent; waiting for the prospect's response.", refs=refs, wait=72, conf=0.8)
+            if cat == "out_of_office":
+                return out("wait", "The prospect is out of office; follow-ups were postponed until they return.",
+                           refs=refs, wait=24 * 7, conf=0.88)
             if cat in ("positive_interest", "meeting_request"):
-                if tried("book_meeting"):
+                if (m_latest and m_latest["status"] in ("pending_approval", "invited")) or open_("book_meeting"):
                     return out("wait", "Invitation already sent; waiting for the prospect to accept.", refs=refs,
                                wait=24, conf=0.8)
                 return out("book_meeting", "The prospect replied with interest; propose a short discovery call.",
@@ -142,7 +192,7 @@ class ScriptedDemoClient:
         if not company.get("industry") and not tried("enrich_company") and "enrich_company" in allowed:
             return out("enrich_company", "Company firmographics are missing; enrich before judging fit.",
                        missing=["industry", "employee_count"], conf=0.85, expected="Industry and size known.")
-        if not any(f["kind"] in ("brief", "research", "intent_signal", "news") for f in findings) \
+        if not any(f["kind"] in SIGNAL_KINDS for f in findings) \
                 and not tried("research_prospect") and "research_prospect" in allowed:
             return out("research_prospect", "No research yet; read the company's website for relevant signals.",
                        missing=["current initiatives"], conf=0.8)
@@ -181,6 +231,31 @@ class ScriptedDemoClient:
             return out("draft_outreach", "Qualified with evidence; write a first personalised email.",
                        refs=[f["id"] for f in findings][:3], channel="email",
                        params={"channel": "email", "angle": "relevant initiative from research"}, conf=0.82)
+        if follow_ups:
+            due = [f for f in follow_ups if f["status"] in ("due", "drafted")]
+            scheduled = [f for f in follow_ups if f["status"] == "scheduled"]
+            if due:
+                f = due[0]
+                if fresh:
+                    return out("send_email", f"Follow-up step {f['step']} is drafted; propose sending it "
+                                             "(human approval required).", refs=[fresh[0]["id"]], channel="email",
+                               params={"draft_task_id": fresh[0]["id"]}, conf=0.74)
+                return out("draft_outreach", f"Follow-up step {f['step']} is due and the prospect has not replied; "
+                                             f"write it ({f.get('angle') or 'add something new'}).",
+                           refs=[outbound[0]["id"]], channel="email",
+                           params={"channel": "email", "follow_up_of": outbound[0].get("task_id") or None,
+                                   "step": f["step"], "angle": f.get("angle")}, conf=0.72)
+            if scheduled:
+                f = scheduled[0]
+                hours = max(0.5, -_age_hours(f["due_at"]))
+                return out("wait", f"Follow-up step {f['step']} is scheduled for {f['due_at'][:16]}; waiting.",
+                           refs=[outbound[0]["id"]], wait=round(hours, 1), conf=0.88)
+            last_age = _age_hours(outbound[0]["occurred_at"])
+            if last_age < 72:
+                return out("wait", "Final step sent; allowing time for a reply before closing the sequence.",
+                           refs=[outbound[0]["id"]], wait=round(72 - last_age, 1), conf=0.85)
+            return out("stop", f"Sequence complete: {len(outbound)} email(s) sent without a reply.",
+                       refs=[outbound[0]["id"]], conf=0.82, worth=False)
         last_age = _age_hours(outbound[0]["occurred_at"])
         follow_after = 72
         if last_age < follow_after:
@@ -212,7 +287,7 @@ class ScriptedDemoClient:
     def _intent(self, user: str, schema: dict) -> dict:
         d = _doc(user)
         sig = [{"signal": f["summary"][:160], "evidence_ref": f["id"], "strength": "moderate"}
-               for f in d.get("findings", []) if f["kind"] in ("intent_signal", "news", "research", "brief")][:3]
+               for f in d.get("findings", []) if f["kind"] in SIGNAL_KINDS][:3]
         replies = [i for i in d.get("interactions", []) if i["direction"] == "inbound"]
         sig += [{"signal": "Prospect replied", "evidence_ref": i["id"], "strength": "strong"} for i in replies[:1]]
         score = min(90, 25 + 18 * len(sig))
@@ -251,27 +326,66 @@ class ScriptedDemoClient:
         brief = _tail_json(user, "DRAFT BRIEF:")
         p = d.get("prospect", {})
         company, person = p.get("company") or {}, p.get("person") or {}
-        finding = next((f for f in d.get("findings", []) if f["kind"] in ("intent_signal", "news", "research", "brief")),
-                       None)
-        hook = finding["summary"].rstrip(".") if finding else f"{company.get('name')}'s growth"
+        campaign = d.get("campaign") or {}
+        variant = int(brief.get("variant") or 0)
+        step = int(brief.get("step") or 1)
+        signals = [f for f in d.get("findings", []) if f["kind"] in SIGNAL_KINDS]
+        priority = {"news": 0, "buying_signal": 1, "expansion": 2, "hiring": 3, "technology": 4}
+        signals.sort(key=lambda f: priority.get(f["kind"], 9))
+        finding = signals[variant % len(signals)] if signals else None
+        second = next((f for f in signals if f is not finding and f["kind"] == "technology"), None)
+        hook = finding["summary"].rstrip(".") if finding else f"{company.get('name')} is growing"
+        hook = hook[0].lower() + hook[1:] if hook[:1].isupper() and not hook.startswith(company.get("name") or "~") else hook
         sender = brief.get("sender") or {}
         first = person.get("first_name") or "there"
-        follow = bool(brief.get("follow_up_of"))
-        if follow:
-            subject = f"Re: {company.get('name')} outbound"
-            body = (f"Hi {first},\n\nA follow-up on my note. Given that {hook}, teams in a similar spot usually start with "
-                    f"one segment and a two-week pilot, so the effort stays small.\n\nWould a 20-minute call next week "
-                    f"be useful?\n\n{sender.get('name', '')}")
+        values = [v for v in campaign.get("value_points") or [] if isinstance(v, str)]
+        value = values[variant % len(values)] if values else "account research done for you, approved by a person"
+        offer = (campaign.get("offer") or "").split(".")[0]
+        ctas = ["Would a 20-minute call next week be useful?", "Open to a short call to compare notes?",
+                "Worth a 15-minute conversation?"]
+        cta = ctas[variant % len(ctas)]
+        name = company.get("name") or "your team"
+        if step > 1 or brief.get("follow_up_of"):
+            subjects = [f"Re: {name} — one more idea", f"Following up: {name}", f"A quick follow-up for {name}"]
+            subject = subjects[variant % len(subjects)]
+            body = (f"Hi {first},\n\nA short follow-up. Given that {hook}, teams in a similar position usually start "
+                    f"with one segment and a two-week pilot, so the effort stays small. In short: {value.lower()}."
+                    f"\n\n{cta}\n\n{sender.get('name', '')}")
         else:
-            subject = f"{company.get('name')} and outbound research"
-            body = (f"Hi {first},\n\nI saw that {hook}. "
-                    f"We help sales teams research accounts and prepare personalised outreach that a person approves "
-                    f"before anything is sent.\n\nWould a 20-minute call to compare notes be worthwhile?\n\n"
+            subjects = [f"{name} and {(values[0] if values else 'outbound research').lower()[:40]}",
+                        f"Idea for {name}'s sales team", f"{name}: {hook[:45]}"]
+            subject = subjects[variant % len(subjects)][:88]
+            body = (f"Hi {first},\n\nI noticed that {hook}. {offer + '.' if offer else ''} "
+                    f"For a team like yours that means {value.lower()}.\n\n{cta}\n\n"
                     f"{sender.get('name', '')}, {sender.get('title', '')}")
-        ref = finding["id"] if finding else company.get("id") or person.get("id")
+        points = []
+        if finding:
+            points.append({"point": hook, "evidence_ref": finding["id"]})
+        if second:
+            points.append({"point": second["summary"].rstrip("."), "evidence_ref": second["id"]})
+        if not points:
+            points.append({"point": f"{name}'s profile", "evidence_ref": company.get("id") or person.get("id")})
         return {"channel": brief.get("channel") or "email", "subject": subject, "body": body,
-                "personalisation": [{"point": hook, "evidence_ref": ref}], "claims": [],
-                "call_to_action": "20-minute call"}
+                "personalisation": points, "claims": [], "call_to_action": cta}
+
+    def _reply_draft(self, user: str, schema: dict) -> dict:
+        d = _doc(user)
+        kb = d.get("knowledge_base") or []
+        if not kb:
+            return {"answerable": False, "subject": "", "body": "", "used_kb_ids": [],
+                    "reasoning": "No knowledge-base entry applies."}
+        first = d.get("first_name") or "there"
+        sender = d.get("sender") or {}
+        objection = d.get("category") == "objection"
+        opening = "That's a fair point." if objection else "Thanks for the question."
+        answers = "\n\n".join(e["answer"] for e in kb)
+        subject = d.get("original_subject") or "Your question"
+        subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+        body = (f"Hi {first},\n\n{opening} {answers}\n\nHappy to go through it on a short call if useful."
+                f"\n\n{sender.get('name', '')}")
+        return {"answerable": True, "subject": subject[:88], "body": body, "used_kb_ids": [e["id"] for e in kb],
+                "reasoning": f"Answered the prospect's {d.get('category')} using approved knowledge-base entries: "
+                             + ", ".join(e["topic"] for e in kb) + ". No other claims added."}
 
     def _reply(self, user: str, schema: dict) -> dict:
         d = _doc(user)
@@ -281,11 +395,14 @@ class ScriptedDemoClient:
         rules = [("unsubscribe", ("unsubscribe", "remove me", "stop emailing")),
                  ("not_interested", ("not interested", "no thanks", "no thank you", "not a fit")),
                  ("out_of_office", ("out of office", "on leave", "back on")),
+                 ("objection", ("already use", "already have", "not sure we need", "too expensive", "budget",
+                                "happy with our", "no bandwidth")),
                  ("not_now", ("next quarter", "not right now", "later this year", "circle back")),
                  ("meeting_request", ("book a call", "set up a call", "send times", "calendar", "meet next")),
-                 ("positive_interest", ("interested", "sounds good", "tell me more", "let's talk", "keen"))]
+                 ("positive_interest", ("interested", "interesting", "sounds good", "tell me more", "let's talk",
+                                        "keen"))]
         category = next((c for c, keys in rules if any(k in low for k in keys)), "question" if "?" in text else "other")
         first = next((ln.strip() for ln in text.splitlines() if len(ln.strip()) >= 5), text.strip()[:120])
         return {"category": category, "summary": f"Scripted demo classification: {first[:140]}",
-                "objection": None, "follow_up_after_days": 7 if category == "out_of_office" else None,
+                "objection": first[:200] if category == "objection" else None, "follow_up_after_days": 7 if category == "out_of_office" else None,
                 "referral": None, "quotes": [first] if first and first in (d.get("reply") or "") else []}

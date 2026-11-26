@@ -48,7 +48,7 @@ from app.compliance.rules import (
 )
 from app.core.auth import reviewer_for
 from app.core.database import get_db
-from app.core.tenancy import DEFAULT_TENANT_ID
+from app.core.tenancy import DEFAULT_TENANT_ID, active_tenant  # noqa: F401
 from app.memory.context import build_prospect_memory
 from app.memory.facts import ENTITY_MODELS, EvidenceInput, FactLedger
 from app.memory.records import record_finding, schedule_work
@@ -294,11 +294,11 @@ async def list_suppressions(include_lifted: bool = False, db: AsyncSession = Dep
 @compliance_router.post("/suppressions", summary="Add a suppression")
 async def post_suppression(body: SuppressionBody, db: AsyncSession = Depends(get_db)) -> dict:
     try:
-        s = await add_suppression(db, tenant_id=DEFAULT_TENANT_ID, scope=body.scope, value=body.value,
+        s = await add_suppression(db, tenant_id=active_tenant(), scope=body.scope, value=body.value,
                                   reason=body.reason, source=body.source, created_by=body.created_by, note=body.note)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
-    _audit(db, None, DEFAULT_TENANT_ID, "suppression_added", {"suppression_id": str(s.id), "scope": s.scope,
+    _audit(db, None, active_tenant(), "suppression_added", {"suppression_id": str(s.id), "scope": s.scope,
                                                                "value": s.value, "reason": s.reason, "by": body.created_by})
     await db.commit()
     return {"id": str(s.id), "scope": s.scope, "value": s.value}

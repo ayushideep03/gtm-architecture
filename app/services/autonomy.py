@@ -231,7 +231,9 @@ async def tick(worker: str = "worker", *, orchestrator=None, executor=None) -> d
                 await s.commit()
         else:
             try:
-                cycle = await run_lead_cycle(lead_id, orchestrator=orchestrator, executor=executor)
+                from app.core.tenancy import tenant_scope
+                with tenant_scope(tenant_id):
+                    cycle = await run_lead_cycle(lead_id, orchestrator=orchestrator, executor=executor)
             except Exception as exc:  # noqa: BLE001 - one prospect's failure must not stop the others
                 logger.exception("Oxygen cycle failed for lead %s", lead_id)
                 report["cycles"].append({"lead_id": str(lead_id), "status": "error", "error": str(exc)[:200]})

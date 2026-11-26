@@ -240,8 +240,8 @@ class TestApiAuthentication:
             assert (await c.get("/api/v1/approvals", headers={"Authorization": f"Bearer {KEY}"})).status_code == 200
             # public: liveness and sign-in
             assert (await c.get("/api/v1/health")).status_code == 200
-            assert (await c.get("/api/v1/auth/me")).json() == {"auth_required": True, "configured": True,
-                                                                "principal": None}
+            me = (await c.get("/api/v1/auth/me")).json()
+            assert me["auth_required"] is True and me["principal"] is None
 
     @pytest.mark.anyio
     async def test_dashboard_login_sets_httponly_cookie(self, app, monkeypatch):
@@ -249,7 +249,8 @@ class TestApiAuthentication:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             assert (await c.post("/api/v1/auth/login", json={"api_key": "nope"})).status_code == 401
             r = await c.post("/api/v1/auth/login", json={"api_key": KEY})
-            assert r.status_code == 200 and r.json() == {"principal": "alex"}
+            assert r.status_code == 200 and r.json() == {"principal": "alex", "role": "admin"}
+            assert KEY not in r.headers["set-cookie"]              # the cookie is a signed session, not the key
             cookie = r.headers["set-cookie"].lower()
             assert "httponly" in cookie and "samesite=strict" in cookie
             assert (await c.get("/api/v1/approvals")).status_code == 200       # cookie sent automatically
@@ -272,8 +273,9 @@ class TestApiAuthentication:
         from types import SimpleNamespace
         from app.core.auth import LOCAL_PRINCIPAL, Principal, reviewer_for
         monkeypatch.delenv("OXYGEN_API_KEYS", raising=False)
-        local = SimpleNamespace(state=SimpleNamespace(principal=Principal(LOCAL_PRINCIPAL, authenticated=False)))
-        signed = SimpleNamespace(state=SimpleNamespace(principal=Principal("alex", authenticated=True)))
+        from app.core.tenancy import DEFAULT_TENANT_ID as T
+        local = SimpleNamespace(state=SimpleNamespace(principal=Principal(LOCAL_PRINCIPAL, T, "admin", False)))
+        signed = SimpleNamespace(state=SimpleNamespace(principal=Principal("alex", T, "approver", True)))
         assert reviewer_for(local, "ceo@corp") == "ceo@corp (unverified, local-dev)"
         assert reviewer_for(signed, "ceo@corp") == "alex"       # the body cannot impersonate
 

@@ -78,7 +78,7 @@ class TestInboundEvents:
                                         router=classifier("unsubscribe", ["stop emailing me"]))
         status = await check_contact_allowed(db, lead)
         assert res.matched and "opt-out detected deterministically" in " ".join(res.actions)
-        assert status.suppressed and not status.lawful_basis_ok and lead.status == "replied"
+        assert status.suppressed and not status.lawful_basis_ok and lead.status == "closed_lost"  # opt-out closes the lead
 
     @pytest.mark.anyio
     async def test_reply_classified_with_grounded_quotes_and_objection(self, db):

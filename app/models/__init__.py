@@ -30,7 +30,18 @@ from app.models.memory import (  # noqa: F401,E402
     WorkItem,
 )
 
+from app.models.pipeline import (  # noqa: F401,E402
+    AppUser,
+    Campaign,
+    CampaignAccount,
+    DemoClock,
+    Draft,
+    FollowUp,
+    Meeting,
+)
+
 __all__ = [
+    "AppUser", "Campaign", "CampaignAccount", "DemoClock", "Draft", "FollowUp", "Meeting",
     "AgentDecision",
     "Approval",
     "ContactConsent",

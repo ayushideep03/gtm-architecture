@@ -1,7 +1,12 @@
-# Demo profile: development config + a SCRIPTED demo playbook in place of a language model.
-# Lets the whole pipeline run without an API key. Everything it produces is labelled
-# vendor "demo" / model "scripted-demo-playbook", and the dashboard shows a banner.
-# Never use this profile in production. Mock send/meeting providers run in dry_run mode.
+# DEMO MODE: the complete pipeline with no API keys and no external calls.
+#
+# - A SCRIPTED demo playbook stands in for the language model (vendor "demo", model
+#   "scripted-demo-playbook"); the dashboard labels it everywhere.
+# - Every external integration is replaced by a demo provider with the SAME interface as
+#   the live one (see docs/MOCK_INTEGRATION_GUIDE.md); live providers are disabled here, and
+#   the executor additionally refuses any non-demo provider for external actions in this
+#   profile, so nothing can leave the machine even if credentials are present.
+# Never use this profile in production.
 include:
   - gtm.development.yaml
 llm:
@@ -12,4 +17,50 @@ llm:
     researcher: {provider: demo, model: scripted-demo-playbook, fallback_profiles: []}
     writer: {provider: demo, model: scripted-demo-playbook, fallback_profiles: []}
 autonomy:
-  tick_interval_s: 5
+  tick_interval_s: 4
+runtime:
+  key_prefix: gtm-demo
+providers:
+  # demo providers (same interfaces as the live ones)
+  - name: demo_apollo
+    factory: app.integrations.demo_providers:DemoApolloProvider
+    capabilities: [find_leads]
+    priority: 95
+    tags: [demo]
+  - name: demo_research
+    factory: app.integrations.demo_providers:DemoResearchProvider
+    capabilities: [research_prospect]
+    priority: 95
+    tags: [demo]
+  - name: demo_google_calendar
+    factory: app.integrations.demo_providers:DemoCalendarProvider
+    capabilities: [book_meeting]
+    priority: 95
+    mode: dry_run
+    tags: [demo]
+    settings: {flavour: google_calendar}
+  - name: demo_calendly
+    factory: app.integrations.demo_providers:DemoCalendarProvider
+    capabilities: [book_meeting]
+    priority: 60
+    mode: dry_run
+    tags: [demo]
+    settings: {flavour: calendly}
+  - name: demo_inbox
+    factory: app.integrations.demo_providers:DemoInboxProvider
+    capabilities: [receive_email]
+    tags: [demo]
+  - name: mock_outreach_send          # the demo email sender (records the message, sends nothing)
+    priority: 95
+    tags: [mock, demo]
+  # live providers: disabled in demo mode
+  - {name: smtp_email, enabled: false}
+  - {name: smtp_meetings, enabled: false}
+  - {name: imap_inbox, enabled: false}
+  - {name: billionmail, enabled: false}
+  - {name: apollo, enabled: false}
+  - {name: llm_research, enabled: false}
+  - {name: mock_prospect_research, enabled: false}
+  - {name: mock_apollo, enabled: false}
+  - {name: mock_scout, enabled: false}
+  - {name: scout, enabled: false}

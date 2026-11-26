@@ -217,7 +217,8 @@ async def classify_reply(body: str, subject: Optional[str], cfg: GTMConfig, rout
 
 async def process_email_event(db: AsyncSession, ev: EmailEvent, tenant_id: Optional[uuid.UUID] = None,
                               router=None) -> InboundResult:
-    tenant = tenant_id or DEFAULT_TENANT_ID
+    from app.core.tenancy import active_tenant
+    tenant = tenant_id or active_tenant()
     cfg = get_gtm_config().for_tenant(tenant)
     if await _seen(db, tenant, ev.provider, ev.event_id):
         return InboundResult(matched=True, duplicate=True, actions=["duplicate ignored"])
@@ -272,6 +273,9 @@ async def process_email_event(db: AsyncSession, ev: EmailEvent, tenant_id: Optio
             _event(db, lead, tenant, "reply_classified", {**base, **{k: classification[k] for k in
                                                                      ("category", "summary", "objection")}})
             actions.append(f"classified as {classification['category']}")
+            from app.pipeline.hooks import on_reply_classified
+            actions += await on_reply_classified(db, lead, classification["category"], when,
+                                                 classification.get("follow_up_after_days"))
         await db.flush()
         return InboundResult(matched=True, lead_id=lead.id, actions=actions, classification=classification)
 
@@ -305,7 +309,8 @@ async def _suppress(db, tenant, person: Optional[Person], reason: str, note: str
 
 
 async def process_calendar_event(db: AsyncSession, ev: CalendarEvent, tenant_id: Optional[uuid.UUID] = None) -> InboundResult:
-    tenant = tenant_id or DEFAULT_TENANT_ID
+    from app.core.tenancy import active_tenant
+    tenant = tenant_id or active_tenant()
     if await _seen(db, tenant, ev.provider, ev.event_id):
         return InboundResult(matched=True, duplicate=True, actions=["duplicate ignored"])
     lead = await _lead_for(db, tenant, [], ev.attendee_email)
@@ -326,5 +331,7 @@ async def process_calendar_event(db: AsyncSession, ev: CalendarEvent, tenant_id:
         lead.status = "replied"
     _event(db, lead, tenant, event_type, {"lead_id": str(lead.id), "meeting_id": ev.meeting_id,
                                           "start": ev.start, "provider": ev.provider})
+    from app.pipeline.meetings import on_calendar_event
+    await on_calendar_event(db, tenant, ev.meeting_id, ev.type, ev.start, ev.end)
     await db.flush()
     return InboundResult(matched=True, lead_id=lead.id, actions=[f"meeting {ev.type} recorded"])

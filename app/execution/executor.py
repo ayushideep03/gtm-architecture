@@ -103,6 +103,14 @@ class TaskExecutor:
         task = (await session.execute(select(Task).where(Task.id == task_id).with_for_update())).scalar_one_or_none()
         if task is None:
             raise TaskNotFoundError(f"Task '{task_id}' not found")
+        # Everything this task writes belongs to its organisation (defaults + row-level security
+        # for the transactions that follow the claim).
+        from app.core.tenancy import tenant_scope
+        with tenant_scope(task.tenant_id):
+            return await self._execute_locked(task, task_id, session, force)
+
+    async def _execute_locked(self, task: Task, task_id: uuid.UUID, session: AsyncSession,
+                              force: bool) -> ExecutionOutcome:
 
         status = task.status
         if status in (TaskStatus.COMPLETED.value, TaskStatus.DONE.value):
@@ -208,8 +216,17 @@ class TaskExecutor:
         spend_limit = cfg.for_tenant(task.tenant_id).compliance.daily_spend_limit
         spent_today = await self._spent_today(session, task.tenant_id) if spend_limit is not None else 0.0
 
+        demo_mode = cfg.profile == "demo"
         for cand in candidates:
             pc = cand.config
+            if demo_mode and external and not ({"mock", "demo"} & set(pc.tags or [])):
+                # Demo mode: external actions may only use demo/mock providers, whatever else is configured.
+                attempts.append({"provider": cand.name, "success": False, "error_code": "DEMO_MODE_BLOCKED",
+                                 "duration_ms": 0})
+                result = ExecutionResult(success=False, status="failed", provider=cand.name,
+                                         error_code="DEMO_MODE_BLOCKED",
+                                         error_message="live provider refused in demo mode")
+                continue
             if spend_limit is not None and pc.cost_per_call > 0 and spent_today + pc.cost_per_call > spend_limit:
                 attempts.append({"provider": cand.name, "success": False, "error_code": "SPEND_LIMIT", "duration_ms": 0})
                 result = ExecutionResult(success=False, status="failed", provider=cand.name, error_code="SPEND_LIMIT",
@@ -303,6 +320,8 @@ class TaskExecutor:
                           payload=json.dumps({**self._common(task, capability, used, attempts),
                                               "success": True, "result": result.result}, default=str)))
         await self._sync_decision(session, task, "executed")
+        from app.pipeline.hooks import on_task_completed
+        await on_task_completed(session, task, capability, result.result or {})
         await session.commit()
         logger.info("Task [%s] completed via %r after %d attempt(s)", task.id, used.name if used else None, len(attempts))
         return ExecutionOutcome(task_id=task.id, success=True, task_status=task.status,

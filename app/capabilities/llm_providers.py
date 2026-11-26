@@ -394,6 +394,7 @@ class LLMDraftingProvider(LLMCapabilityProvider):
         brief = {
             "channel": channel, "angle": context.payload.get("angle"),
             "follow_up_of": context.payload.get("follow_up_of"),
+            "step": context.payload.get("step"), "variant": context.payload.get("variant") or 0,
             "sender": {"name": pol.sender_name, "title": pol.sender_title, "company": pol.sender_company},
             "tone": cfg.oxygen.campaign.tone, "max_words": pol.max_words.get(channel),
             "banned_phrases": pol.banned_phrases,

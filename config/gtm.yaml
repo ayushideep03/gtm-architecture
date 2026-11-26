@@ -62,6 +62,16 @@ providers:
     factory: app.capabilities.llm_providers:RepTaskProvider
     capabilities: [create_rep_task]
     priority: 80
+  # ── Qualification and response intelligence (no external calls) ──
+  - name: icp_rules                    # deterministic, explainable ICP scoring against the campaign's rules
+    factory: app.pipeline.icp:IcpQualificationProvider
+    capabilities: [qualify_lead]
+    priority: 90
+  - name: response_intelligence        # answers questions/objections ONLY from the approved knowledge base
+    factory: app.pipeline.responses:ResponseIntelligenceProvider
+    capabilities: [draft_reply]
+    priority: 80
+    settings: {llm_profile: writer}
   # ── Lead sources ──
   - name: apollo                       # built from Apollo's API reference; not yet verified live
     factory: app.integrations.apollo:ApolloProvider
@@ -284,6 +294,7 @@ autonomy:
     email_bounced:     {delay_minutes: 0, priority: 7}
     meeting_booked:    {delay_minutes: 0, priority: 8}
     meeting_cancelled: {delay_minutes: 0, priority: 8}
+    meeting_rescheduled: {delay_minutes: 0, priority: 8}
 
 # ── RevOps & learning ────────────────────────────────────────────────────────
 revops:

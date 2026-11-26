@@ -50,6 +50,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _default_tenant_id():
+    """The request's / job's tenant if one is set, else the default organisation."""
+    from app.core.tenancy import active_tenant
+    return active_tenant()
+
+
 class TenantScoped:
     """
     Mixin adding ``tenant_id`` (FK organizations.id). Rows created without an
@@ -64,13 +70,13 @@ class TenantScoped:
             ForeignKey("organizations.id", ondelete="RESTRICT"),
             nullable=False,
             index=True,
-            default=DEFAULT_TENANT_ID,
+            default=_default_tenant_id,
             server_default=str(DEFAULT_TENANT_ID),
         )
 
     @validates("tenant_id")
     def _default_tenant(self, key, value):
-        return value or DEFAULT_TENANT_ID
+        return value or _default_tenant_id()
 
 
 # ── Organization (tenant) ─────────────────────────────────────────────────────
@@ -215,6 +221,8 @@ class Person(TenantScoped, Base):
         DateTime(timezone=True), nullable=True
     )
     enrichment_source: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # verified | unverified | guessed | invalid (from the discovery provider; demo data says so)
+    verification_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
@@ -273,6 +281,9 @@ class Lead(TenantScoped, Base):
     )
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # True while the lead is not in a terminal status (terminal statuses come from
     # config: identity.lead.terminal_statuses). A partial unique index on
     # (tenant_id, person_id) WHERE is_open guarantees one open lead per person.

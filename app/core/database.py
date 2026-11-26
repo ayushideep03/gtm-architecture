@@ -67,6 +67,24 @@ def create_engine_and_session() -> tuple:
 engine, AsyncSessionLocal = create_engine_and_session()
 
 
+# ── Tenant isolation (row-level security) ─────────────────────────────────────
+# Every transaction carries the current tenant (if any) as the transaction-local
+# setting ``app.tenant_id``; the RLS policies from migration 0012 only expose and
+# accept that tenant's rows. No tenant set (worker queue scans, migrations,
+# tests) means the setting is absent and the policies allow every tenant.
+
+from sqlalchemy import event as _sa_event, text as _sa_text  # noqa: E402
+from sqlalchemy.orm import Session as _SyncSession  # noqa: E402
+
+
+@_sa_event.listens_for(_SyncSession, "after_begin")
+def _apply_tenant(session, transaction, connection) -> None:
+    from app.core.tenancy import current_tenant
+    tenant = current_tenant.get()
+    if tenant is not None:
+        connection.execute(_sa_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+
+
 # ── FastAPI dependency ────────────────────────────────────────────────────────
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.gtm_config import get_gtm_config
 from app.core.logging import get_logger
-from app.core.tenancy import DEFAULT_TENANT_ID
+from app.core.tenancy import DEFAULT_TENANT_ID, active_tenant  # noqa: F401
 from app.integrations.lead_source_record import LeadSourceRecord
 from app.models.base import Company, Event, Lead, Person, SourceRecord
 from app.compliance.rules import record_consent
@@ -133,7 +133,7 @@ class LeadIngestionService:
         for record in records:
             try:
                 async with db.begin_nested():
-                    result = await self._ingest_one(record, db, tenant_id or DEFAULT_TENANT_ID)
+                    result = await self._ingest_one(record, db, tenant_id or active_tenant())
                 summary.record(result)
             except Exception as exc:  # noqa: BLE001 - one bad record must not sink the batch
                 err_msg = f"Record {record.external_id!r}: {exc}"

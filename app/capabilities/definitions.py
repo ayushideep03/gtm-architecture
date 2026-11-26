@@ -87,6 +87,8 @@ class DraftOutreachInput(_Params):
     angle: Optional[str] = None
     research_task_id: Optional[uuid.UUID] = None
     follow_up_of: Optional[uuid.UUID] = None      # previous draft/send this follows up
+    step: Optional[int] = None                    # campaign sequence step this draft is for
+    variant: int = 0                              # "regenerate": ask for a different version
 
     @model_validator(mode="after")
     def _channel_allowed(self):
@@ -103,6 +105,11 @@ class SendEmailInput(_Params):
     recipient_email: Optional[str] = None
     subject: Optional[str] = None
     body: Optional[str] = None
+
+
+class DraftReplyInput(_Params):
+    lead_id: Optional[uuid.UUID] = None
+    reply_interaction_id: Optional[uuid.UUID] = None   # defaults to the latest inbound reply
 
 
 class BookMeetingInput(_Params):
@@ -202,6 +209,18 @@ BUILTIN_CAPABILITIES: list[CapabilitySpec] = [
         requires=["person"],
         repeatability=RepeatabilityConfig(mode="repeatable", max_per_lead=10),
         aliases=["outreach_drafting"],
+        provider_interfaces=(ExecutionProvider,),
+    ),
+    CapabilitySpec(
+        name="draft_reply",
+        description="Answer a prospect's question or objection using ONLY the approved knowledge base; "
+                    "questions it cannot answer from the knowledge base are escalated to a person, never guessed.",
+        category="outreach",
+        input_model=DraftReplyInput,
+        side_effect=SideEffect.INTERNAL_WRITE,
+        target_type="lead",
+        requires=["person"],
+        repeatability=RepeatabilityConfig(mode="repeatable", max_per_lead=6),
         provider_interfaces=(ExecutionProvider,),
     ),
     CapabilitySpec(

@@ -29,7 +29,7 @@ from typing import Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.tenancy import DEFAULT_TENANT_ID
+from app.core.tenancy import DEFAULT_TENANT_ID, active_tenant  # noqa: F401
 from app.models.base import Company, Person, SourceRecord
 from app.services.normalization import normalize_domain, normalize_email, normalize_name, normalize_url
 
@@ -92,7 +92,7 @@ class IdentityResolver:
         if not source or not external_id:
             return None
         stmt = select(SourceRecord).where(
-            SourceRecord.tenant_id == (tenant_id or DEFAULT_TENANT_ID),
+            SourceRecord.tenant_id == (tenant_id or active_tenant()),
             SourceRecord.source == source,
             SourceRecord.external_id == str(external_id),
         )
@@ -112,7 +112,7 @@ class IdentityResolver:
         tenant_id: Optional[uuid.UUID] = None,
         strategy: Optional[Sequence[str]] = None,
     ) -> CompanyResolutionResult:
-        tenant = tenant_id or DEFAULT_TENANT_ID
+        tenant = tenant_id or active_tenant()
         norm_domain = normalize_domain(domain)
         norm_website = normalize_domain(website) if website else None
         norm_linkedin = normalize_url(linkedin_url)
@@ -167,7 +167,7 @@ class IdentityResolver:
         tenant_id: Optional[uuid.UUID] = None,
         strategy: Optional[Sequence[str]] = None,
     ) -> PersonResolutionResult:
-        tenant = tenant_id or DEFAULT_TENANT_ID
+        tenant = tenant_id or active_tenant()
         norm_email = normalize_email(email)
         norm_linkedin = normalize_url(linkedin_url)
         first, last = normalize_name(first_name), normalize_name(last_name)

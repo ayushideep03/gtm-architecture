@@ -75,6 +75,8 @@ async def request_approval(
                      "approval_id": str(approval.id), "task_id": str(task.id), "capability": task.task_type,
                      "expires_at": approval.expires_at.isoformat()})))
     await db.flush()
+    from app.pipeline.hooks import on_approval_requested
+    await on_approval_requested(db, task)
     return approval
 
 
@@ -120,6 +122,8 @@ async def approve(
                  payload=json.dumps({"approval_id": str(approval.id), "task_id": str(task.id),
                                      "reviewer": reviewer, "edited": approval.edited, "note": note})))
     await db.flush()
+    from app.pipeline.hooks import on_approval_decided
+    await on_approval_decided(db, approval, task, "approved")
     return approval
 
 
@@ -142,6 +146,8 @@ async def _close(db, approval: Approval, task: Task, status: str, *, reviewer: s
                  source="approvals", payload=json.dumps({"approval_id": str(approval.id), "task_id": str(task.id),
                                                          "reviewer": reviewer, "note": note})))
     await db.flush()
+    from app.pipeline.hooks import on_approval_decided
+    await on_approval_decided(db, approval, task, status)
 
 
 async def expire_stale(db: AsyncSession) -> int:

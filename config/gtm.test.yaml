@@ -14,3 +14,5 @@ oxygen:
   decision_engine: rules      # deterministic tests; LLM engine is tested with scripted clients
 webhooks:
   allow_unsigned: true          # local convenience only; production requires signatures
+providers:
+  - {name: icp_rules, priority: 40}   # existing tests drive the mock qualifier; ICP rules are tested directly

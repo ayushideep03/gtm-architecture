@@ -148,7 +148,8 @@ def render_context(memory: dict, capabilities: list[dict], cfg: GTMConfig) -> st
     lead, person, company = memory["lead"], memory.get("person"), memory.get("company")
     doc = {
         "now": datetime.now(timezone.utc).isoformat(),
-        "campaign": ox.campaign.model_dump(),
+        # the lead's own campaign (offer, ICP, sequence, status) when it has one; else the platform default
+        "campaign": {**ox.campaign.model_dump(), **{k: v for k, v in (memory.get("campaign") or {}).items() if v}},
         "prospect": {
             "lead": {k: lead.get(k) for k in ("id", "status", "score", "source", "notes", "created_at")},
             "person": {k: person.get(k) for k in ("id", "first_name", "last_name", "email", "title", "seniority",
@@ -166,11 +167,16 @@ def render_context(memory: dict, capabilities: list[dict], cfg: GTMConfig) -> st
         "decision_history": [{k: d[k] for k in ("id", "engine", "action", "status", "reasoning", "created_at")}
                              for d in memory["decisions"][: ox.context_decision_limit]],
         "tasks": [{"id": t["id"], "capability": t["capability"], "status": t["status"],
+                   "payload": {k: v for k, v in (t.get("payload") or {}).items()
+                               if k in ("draft_task_id", "step", "follow_up_of", "angle", "topic")},
                    "result": _trim(json.dumps(t["result"], default=str), 800) if t["result"] else None,
                    "completed_at": t["completed_at"]} for t in memory["tasks"][:15]],
         "approvals": [{k: a[k] for k in ("id", "capability", "status", "decided_by", "decided_at")}
                       for a in memory["approvals"][:10]],
         "scheduled_work": memory["work_items"],
+        "follow_ups": memory.get("follow_ups", []),
+        "meetings": memory.get("meetings", []),
+        "drafts": memory.get("drafts", []),
         "compliance": memory["compliance"],
         "learned_insights": memory.get("insights"),
         "capabilities": capabilities,
