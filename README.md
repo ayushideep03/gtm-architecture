@@ -417,7 +417,7 @@ Leave it off to keep existing data.
 
 ## 7. How to Run Tests
 
-Run the complete test suite (438 tests). Tests use a separate `gtm_test` database (created and migrated
+Run the complete test suite (442 tests). Tests use a separate `gtm_test` database (created and migrated
 automatically) and their own Redis key prefix, so they never touch your development data:
 ```bash
 python -m pytest -v

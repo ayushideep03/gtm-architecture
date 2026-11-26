@@ -1,56 +1,91 @@
 # Presenting Oxygen — Demo Guide
 
-A 15–20 minute walkthrough of the complete autonomous pipeline. Everything runs locally in demo mode: fictional organisations and data, demo providers, scripted AI, **no email or API call leaves the machine**.
+A 15–20 minute walkthrough of the complete autonomous pipeline. Everything runs locally in demo mode: fictional organisations and data, simulated providers, a scripted AI. **No email, calendar invite or API call leaves the machine**, and the UI labels every simulated item **DEMO**.
 
-## Before the meeting (5 minutes)
+## Launch (one command)
+
+Prerequisites, once: Python venv with `pip install -r requirements.txt`; PostgreSQL and Redis running; Node.js 18+ to build the dashboard the first time.
 
 ```bash
 python start.py
 ```
 
-`start.py` checks Postgres and Redis, applies migrations, builds the dashboard, starts the API and the background worker, and loads the demo dataset. The browser opens at http://127.0.0.1:8000.
+This picks demo mode automatically when no `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is set (force it with `python start.py --profile demo`). It:
+1. Checks Postgres and Redis.
+2. Applies migrations.
+3. Builds the dashboard if needed.
+4. Starts the API and the background worker.
+5. Loads the demo dataset.
+6. Opens **http://127.0.0.1:8000**.
 
-1. Sign in by choosing a demo user. **Northstar Revenue Cloud (Demo)** is the main story. Sign in as **Avery Collins (admin)** to present everything, including approvals.
-2. Open **Demo Control Centre**:
-   - Click **Reset demo environment** to start from a clean state.
-   - Click **Start complete pipeline**. Discovery runs for 12 target accounts and the worker starts researching, qualifying and drafting. Within about 30 seconds, drafts are waiting in the **Approval Centre**.
+Ctrl+C stops everything.
 
-Tips:
-- **Pause workflow** freezes the background engine while you talk; **Resume workflow** continues.
-- **Run worker tick now** moves things forward on demand.
+## Sign in
 
-## Storyline
+The sign-in page lists demo users by organisation. Click a name; no password is needed in demo mode.
 
-| Minute | Show | Say |
+| Organisation | User | Role | Use for |
+|---|---|---|---|
+| Northstar Revenue Cloud (Demo) | **Avery Collins** | admin | **Presenting.** Can do everything, including approvals and resets. |
+| Northstar Revenue Cloud (Demo) | Morgan Reyes | approver | Showing a reviewer: approve or reject only |
+| Northstar Revenue Cloud (Demo) | Jordan Patel | operator | Showing that operators cannot approve |
+| Helix Clinical Systems (Demo) | Sam Okafor / Taylor Brooks / Riley Chen | admin / approver / operator | Showing organisation isolation |
+
+## Before the audience arrives (2 minutes)
+
+1. Sign in as **Avery Collins**.
+2. Open **Demo Control Centre** and click **Reset demo environment** → **Delete and reload**. This gives a clean state; demo users are kept.
+3. Leave it there. Start the pipeline live in front of the audience.
+
+## The management sequence (verified end to end)
+
+| # | Do | What the audience sees |
 |---|---|---|
-| 0–2 | **Dashboard** | Every number comes from database records and updates live. The demo banner says the AI is scripted and providers are simulated. |
-| 2–4 | **Campaigns** → *Q1 Mid-market SaaS Outbound* | A campaign holds the ICP, the offer and the follow-up sequence. Pause, resume and stop act on the running workflow. |
-| 4–5 | **Target Accounts**, **Contacts** | Stage 1–3: accounts with priorities, discovered contacts with verification status. All are labelled demo data. |
-| 5–7 | **Qualification** | Stage 4: open a lead to see the per-dimension explanation. Edit the ICP (e.g. add *Logistics*) → **Preview impact** → **Save & recalculate**. |
-| 7–8 | **Research** | Stage 5: signals with source and "why it matters". Each one is tagged DEMO, never presented as fact. |
-| 8–10 | **AI Drafts** → **Approval Centre** | Stage 6–7: the explanation and evidence behind a draft. **Regenerate**, edit, then approve. The diff shows exactly what the human changed. Nothing is sent without approval. |
-| 10–13 | **Demo Control Centre → Scenarios** | Run **Successful conversion**: email sent → interested reply → meeting proposed and approved → simulated invite → accepted → booked. Show it in **Meetings** and on the **Dashboard**. |
-| 13–15 | Scenarios **Prospect objection** and **Question Oxygen cannot answer** | Stage 10: grounded answers from the approved knowledge base; an unanswerable question is escalated, not invented. Show **Inbox**. |
-| 15–16 | Scenario **Prospect does not reply** | Stage 8: the demo clock advances 3 days and the follow-up is drafted, approved and sent. Show **Follow-ups**. |
-| 16–17 | Scenario **Prospect unsubscribes** | Immediate suppression; follow-ups cancelled; lead closed. |
-| 17–18 | Sign out → sign in as **Jordan Patel (operator)**, then **Sam Okafor (Helix admin)** | Roles: the operator cannot approve. Isolation: Helix sees only its own hospital accounts and campaign. |
-| 18–20 | **Integrations** | Each provider shows *Demo Active*; connection tests are simulated. Going live means adding keys (see FUTURE_API_INTEGRATION.md). |
+| 1 | Sign in as **Avery Collins (admin)** | Role, organisation and the demo-mode banner |
+| 2 | **Demo Control Centre** | Presenter, demo clock (+0 h), workflow running, dataset loaded |
+| 3 | **Start complete pipeline** → confirm | Discovery runs for 12 target accounts and finds 34 contacts. The worker then researches, qualifies and drafts on its own. |
+| 4 | **Target Accounts** | Accounts with industry, size, location, technologies, priority, discovery status and source (`demo_apollo`) |
+| 5 | **Qualification** | 34 evaluated, 30 qualified, 4 disqualified. Expand a row for the per-dimension score and reasons. Optional: **Edit criteria** → **Preview impact** → **Save & recalculate**. |
+| 6 | **Research** | Signals per company (news, hiring, technology, funding, …) and intent assessments, each tagged DEMO with its source and "why it matters" |
+| 7 | **AI Drafts** | Personalised drafts with an explanation, evidence and strategy. **Regenerate** gives a new version. |
+| 8 | **Approval Centre** → select **Priya Shah** → **Approve** | About **25–30 s after step 3**, 30 drafts wait here. The toast says the send is simulated. |
+| 9 | Wait about 5 s (or **Run worker tick now**) | The email is "sent": recorded as a simulated send and Priya moves to *contacted* |
+| 10 | **Demo Control Centre → Prospect triggers**: search "Priya", choose **Priya Shah**, **Trigger reply (interested)** | Matched to Priya, classified *positive interest*, follow-up cancelled, meeting request recorded |
+| 11 | **Meetings** | A *Discovery call* proposal, pending approval, with a banner linking to the Approval Centre |
+| 12 | **Approval Centre** → the *book meeting* item → **Approve** | A simulated Google Calendar invitation with 3 proposed slots appears in **Meetings** |
+| 13 | **Meetings** → **Prospect accepts this slot** → **Accept slot (simulated)** | Status **booked** with the time; Priya's stage is *meeting booked* |
+| 14 | **RevOps** and **Dashboard** | Funnel, rates (flagged *small n* on few touches), decisions; all 15 dashboard KPIs |
+| 15 | (Optional proof) | Every dashboard number is a database count. In validation the dashboard matched SQL exactly. |
 
-## Manual triggers (any prospect)
+Then show the other behaviours with one click each in **Demo Control Centre → Predefined scenarios** (each takes 5–20 s and shows its step log):
 
-In **Demo Control Centre → Prospect triggers**:
+- **Prospect objection:** an answer drafted only from approved facts, approved and sent. Show it in **Inbox**.
+- **Prospect asks a question:** a grounded answer. Contrast with **Question Oxygen cannot answer**, which is escalated to a person and not invented.
+- **Prospect does not reply:** the demo clock advances past the delay; the follow-up is drafted, approved and sent. Show **Follow-ups**.
+- **Prospect unsubscribes:** suppressed, consent withdrawn, follow-ups cancelled, lead closed.
 
-1. Pick a prospect who has already received an email (stage *contacted*).
-2. Click one of the reply triggers: interested, meeting request, question, objection, out of office or unsubscribe.
+## Suggested 15–20 minute running order
 
-The reply goes through the real inbound pipeline: matching, classification, follow-up cancellation and next action. Results show immediately in the **Inbox**. **Simulate follow-up** advances the clock by 3 days so scheduled follow-ups fall due.
+| Min | Section |
+|---|---|
+| 0–2 | Dashboard and the demo-mode banner: what is real (workflow, rules, approvals, data) and what is simulated (providers, AI) |
+| 2–4 | Campaigns: ICP, offer, follow-up sequence; pause, resume and stop |
+| 4–9 | Steps 2–7 above: start the pipeline live, then accounts, qualification, research, drafts |
+| 9–13 | Steps 8–13: approve an email, reply, meeting proposal, approval, booked |
+| 13–16 | Scenarios: objection, unanswerable question (escalation), no reply, unsubscribe |
+| 16–18 | Roles and isolation: sign out, then sign in as **Jordan Patel** (operator: "can review but not approve") and **Sam Okafor** (Helix sees only its own campaign) |
+| 18–20 | **Integrations** (every provider *Demo Active*, tests marked *Simulated*) and the go-live path (FUTURE_API_INTEGRATION.md) |
 
-## Running the demo again
+## Manual triggers
 
-Click **Reset demo environment** at any time. It deletes only the two demo organisations' data and reloads the dataset. Each scenario is repeatable after a reset.
+In **Demo Control Centre → Prospect triggers**, pick a prospect who has received an email (stage *contacted*). The trigger buttons are: interested, meeting request, objection, question, unsupported question, out-of-office and unsubscribe. Replies go through the real inbound pipeline. **Simulate follow-up (+3 days)** advances the demo clock so scheduled follow-ups fall due. The clock buttons (+1 hour … +7 days) do the same in smaller steps.
 
-## If something looks stuck
+## Good to know
 
-- Click **Run worker tick now**. The background worker ticks every 4 seconds.
-- Check the **Workflow execution logs** panel or the prospect's **Workflow** tab: each stage shows done, active or pending.
-- Approvals only proceed when a person (admin or approver) approves them. That is by design.
+- **Timing:** after **Start complete pipeline**, approvals appear after about 25–30 s. Screens refresh live; the sidebar shows "Live updates on".
+- **Demo clock:** advancing it moves that organisation's records into the past, so "3d ago" labels and the trend chart shift accordingly. That is expected.
+- **Repeatable:** **Reset demo environment** deletes only the two demo organisations' data and reloads the dataset.
+- **If something seems stuck:**
+  - Click **Run worker tick now**.
+  - Check the **Workflow execution log** panel or the prospect's **Workflow** tab, where each stage shows done, active or pending.
+  - Approvals only move when an admin or approver approves them. That is by design.

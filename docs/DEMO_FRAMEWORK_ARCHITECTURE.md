@@ -45,6 +45,7 @@ Oxygen runs the complete 12-stage autonomous sales pipeline in **demo mode** wit
 | Retries and recovery | Transient errors retry with backoff and fail over between providers. An ambiguous external result is flagged for human review, not retried. Stale leases are recovered (safe tasks resume; external ones go to review). Manual retry needs explicit acknowledgement. |
 | Scheduling | The work queue (`work_items`) with due times and leases, follow-up rows with due times, and the demo clock, which shifts an organisation's timestamps to show delays live. |
 | Observability | Every step writes an `events` row (workflow history, live feed, logs page). Decisions keep reasoning, evidence and guardrail results. |
+| Live updates | Server-sent events (`/api/v1/stream`). The stream re-reads a sliding 15-second window and skips event ids it has already sent, so events from late-committing worker transactions are never dropped. Screens also refresh on reconnect and every 20 seconds as a safety net. |
 
 ## New data model (migration 0012)
 
