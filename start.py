@@ -166,8 +166,11 @@ def main() -> None:
     say(f"✔ API running on {base} (docs: {base}/docs)")
 
     if profile == "demo" and not args.no_seed:
-        req = urllib.request.Request(f"{base}/api/v1/demo/seed", method="POST", data=b"{}",
-                                     headers={"content-type": "application/json"})
+        headers = {"content-type": "application/json"}
+        first_key = (os.environ.get("OXYGEN_API_KEYS") or "").split(",")[0].partition("=")[2].strip()
+        if first_key:
+            headers["x-api-key"] = first_key
+        req = urllib.request.Request(f"{base}/api/v1/demo/seed", method="POST", data=b"{}", headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=20):
                 say("✔ Demo scenarios loaded (4 labelled SAMPLE prospects)")

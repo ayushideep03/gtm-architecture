@@ -120,11 +120,12 @@ class ImapInboxProvider(InboxProvider):
     @classmethod
     def from_config(cls, pc, credentials: dict) -> "ImapInboxProvider":
         from app.providers.loader import ProviderUnavailable
-        if not pc.settings.get("host"):
-            raise ProviderUnavailable("settings.host is required")
-        if "username" not in credentials or "password" not in credentials:
+        merged = {**pc.settings, **credentials}   # host normally comes from IMAP_HOST
+        if not merged.get("host"):
+            raise ProviderUnavailable("host is required (IMAP_HOST)")
+        if not merged.get("username") or not merged.get("password"):
             raise ProviderUnavailable("username/password credentials are required")
-        return cls(name=pc.name, **{**pc.settings, **credentials})
+        return cls(name=pc.name, **merged)
 
     @property
     def provider_name(self) -> str:

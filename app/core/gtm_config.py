@@ -72,6 +72,9 @@ class ProviderConfig(BaseModel):
     cost_per_call: float = 0.0       # in the org's accounting unit (e.g. USD)
     settings: dict[str, Any] = Field(default_factory=dict)
     credentials: dict[str, str] = Field(default_factory=dict)  # init kwarg -> ENV VAR NAME
+    # Like credentials, but the provider is still available when the variable is unset
+    # (e.g. SMTP login for a relay that accepts unauthenticated mail from this host).
+    optional_credentials: dict[str, str] = Field(default_factory=dict)
     resilience: ResilienceConfig = Field(default_factory=ResilienceConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     constraints: dict[str, list[str]] = Field(default_factory=dict)  # e.g. {"regions": ["EU"]}
@@ -98,6 +101,9 @@ class ProviderConfig(BaseModel):
                 resolved[kwarg] = value
             else:
                 missing.append(env_name)
+        for kwarg, env_name in self.optional_credentials.items():
+            if os.environ.get(env_name):
+                resolved[kwarg] = os.environ[env_name]
         return resolved, missing
 
 

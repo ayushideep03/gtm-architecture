@@ -166,6 +166,8 @@ input.text { width: 100%; }
 .bar-row .val { font-variant-numeric: tabular-nums; text-align: right; color: var(--text-2); }
 .bar-row:hover .bar-fill { filter: brightness(1.12); }
 
+.login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login form { width: min(380px, 100%); display: grid; gap: 4px; }
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 8px; z-index: 40; max-width: 420px; box-shadow: var(--shadow); }
 .toast.err { background: var(--bad); color: #fff; }
 pre.json { background: var(--surface-2); border-radius: 8px; padding: 10px; font-family: var(--mono); font-size: 12px; overflow: auto; max-height: 260px; margin: 0; white-space: pre-wrap; }

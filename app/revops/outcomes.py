@@ -126,11 +126,19 @@ async def _touch_context(db: AsyncSession, touch: Interaction) -> dict[str, Any]
     return ctx
 
 
+ATTRIBUTION_LOCK_KEY = 0x6F787967656E01  # arbitrary, stable advisory-lock id ("oxygen" + 1)
+
+
 async def attribute_outcomes(db: AsyncSession, now: Optional[datetime] = None) -> int:
     """Create/update one attribution row per outbound touch. Returns rows written."""
     cfg = get_gtm_config().revops
     now = now or _now()
     window = timedelta(days=cfg.attribution_window_days)
+    # Several workers tick concurrently; only one attributes at a time (the others skip this
+    # step for the tick). Without this, two workers insert the same touch row and both fail.
+    from sqlalchemy import text as _sql
+    if not (await db.execute(_sql("SELECT pg_try_advisory_xact_lock(:k)"), {"k": ATTRIBUTION_LOCK_KEY})).scalar():
+        return 0
 
     existing = {a.touch_id: a for a in (await db.execute(select(OutcomeAttribution))).scalars().all()}
     touches = (await db.execute(select(Interaction).where(Interaction.direction == "outbound",

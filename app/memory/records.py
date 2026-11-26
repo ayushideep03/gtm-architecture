@@ -81,6 +81,9 @@ async def decisions_for_lead(db: AsyncSession, lead_id: uuid.UUID, limit: int = 
 
 # ── Work queue ────────────────────────────────────────────────────────────────
 
+REQUEUE_KEY = "_requeue_at"
+
+
 async def schedule_work(
     db: AsyncSession, *, tenant_id: uuid.UUID, lead_id: uuid.UUID, kind: str, reason: str,
     due_at: Optional[datetime] = None, priority: int = 5, payload: Optional[dict] = None,
@@ -96,8 +99,15 @@ async def schedule_work(
             existing.due_at = due
         existing.reason = reason
         existing.priority = max(existing.priority, priority)
-        if payload:
-            existing.payload = {**(existing.payload or {}), **payload}
+        merged = {**(existing.payload or {}), **(payload or {})}
+        if existing.leased_until is not None and existing.leased_until > _now():
+            # A worker is processing this item right now. Whatever is requested meanwhile (a new
+            # event: due now; Oxygen's own "wait 72h": due later) must survive the completion of
+            # the current run, so remember the earliest requested time (see complete_work).
+            prior = merged.get(REQUEUE_KEY)
+            merged[REQUEUE_KEY] = min(due, datetime.fromisoformat(prior)).isoformat() if prior else due.isoformat()
+        if merged != (existing.payload or {}):
+            existing.payload = merged
         await db.flush()
         return existing
     item = WorkItem(tenant_id=tenant_id, lead_id=lead_id, kind=kind, reason=reason, due_at=due,
@@ -128,7 +138,22 @@ async def claim_due(db: AsyncSession, *, worker: str, limit: int = 10, lease_s: 
     return items
 
 
-async def complete_work(db: AsyncSession, item: WorkItem, outcome: str) -> None:
+async def complete_work(db: AsyncSession, item: WorkItem, outcome: str, *, force: bool = False) -> None:
+    """Finish a claimed item, unless work was merged into it while it ran: then keep it open, due
+    at the requested time, so neither a new event nor a scheduled re-check is lost.
+    Load ``item`` FOR UPDATE."""
+    requeue = (item.payload or {}).get(REQUEUE_KEY)
+    if requeue and not force:
+        item.payload = {k: v for k, v in item.payload.items() if k != REQUEUE_KEY}
+        item.due_at = datetime.fromisoformat(requeue)
+        item.leased_until = None
+        item.leased_by = None
+        item.attempts = 0          # the previous run succeeded; this is new work, not a retry
+        item.outcome = outcome
+        await db.flush()
+        return
+    if requeue:
+        item.payload = {k: v for k, v in item.payload.items() if k != REQUEUE_KEY}
     item.finished_at = _now()
     item.outcome = outcome
     item.leased_until = None

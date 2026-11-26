@@ -102,7 +102,8 @@ providers:
     factory: app.integrations.email_smtp:SmtpEmailProvider
     capabilities: [send_email]
     priority: 80
-    credentials: {host: SMTP_HOST, from_address: SMTP_FROM_ADDRESS, username: SMTP_USERNAME, password: SMTP_PASSWORD}
+    credentials: {host: SMTP_HOST, from_address: SMTP_FROM_ADDRESS}
+    optional_credentials: {username: SMTP_USERNAME, password: SMTP_PASSWORD}   # omit for an unauthenticated relay
     settings: {port: 587, security: starttls, from_name: "Alex Morgan"}
     rate_limit: {requests: 30, per_seconds: 60}
     resilience: {timeout_s: 30}
@@ -110,7 +111,8 @@ providers:
     factory: app.integrations.email_smtp:SmtpMeetingProvider
     capabilities: [book_meeting]
     priority: 70
-    credentials: {host: SMTP_HOST, from_address: SMTP_FROM_ADDRESS, username: SMTP_USERNAME, password: SMTP_PASSWORD}
+    credentials: {host: SMTP_HOST, from_address: SMTP_FROM_ADDRESS}
+    optional_credentials: {username: SMTP_USERNAME, password: SMTP_PASSWORD}   # omit for an unauthenticated relay
     settings:
       port: 587
       security: starttls

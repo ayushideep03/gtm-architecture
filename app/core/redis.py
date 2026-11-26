@@ -85,13 +85,13 @@ async def check_redis_health() -> dict:
         return {"status": "error", "detail": "Redis ping returned False"}
     except ConnectionError as exc:
         logger.error("Redis health check failed (connection): %s", exc)
-        return {"status": "error", "detail": str(exc)}
+        return {"status": "error", "detail": type(exc).__name__}  # details are logged, not returned to unauthenticated callers
     except RedisError as exc:
         logger.error("Redis health check failed: %s", exc)
-        return {"status": "error", "detail": str(exc)}
+        return {"status": "error", "detail": type(exc).__name__}  # details are logged, not returned to unauthenticated callers
     except Exception as exc:  # noqa: BLE001
         logger.error("Unexpected Redis error: %s", exc)
-        return {"status": "error", "detail": str(exc)}
+        return {"status": "error", "detail": type(exc).__name__}  # details are logged, not returned to unauthenticated callers
 
 
 # ── Per-event-loop clients (workers, runtime state) ──────────────────────────

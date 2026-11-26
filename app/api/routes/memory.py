@@ -33,7 +33,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +46,7 @@ from app.compliance.rules import (
     record_consent,
     withdraw_consent,
 )
+from app.core.auth import reviewer_for
 from app.core.database import get_db
 from app.core.tenancy import DEFAULT_TENANT_ID
 from app.memory.context import build_prospect_memory
@@ -210,8 +211,9 @@ async def _approval_view(db: AsyncSession, a: Approval) -> dict:
 
 @approvals_router.get("", summary="Approval queue")
 async def list_approvals(status_filter: Optional[str] = Query("pending", alias="status"),
+                         limit: int = Query(200, ge=1, le=1000),
                          db: AsyncSession = Depends(get_db)) -> list[dict]:
-    stmt = select(Approval).order_by(Approval.requested_at.desc())
+    stmt = select(Approval).order_by(Approval.requested_at.desc()).limit(limit)
     if status_filter:
         stmt = stmt.where(Approval.status == status_filter)
     return [await _approval_view(db, a) for a in (await db.execute(stmt)).scalars().all()]
@@ -232,9 +234,11 @@ class ApproveBody(BaseModel):
 
 
 @approvals_router.post("/{approval_id}/approve", summary="Approve (optionally edited)")
-async def approve_route(approval_id: uuid.UUID, body: ApproveBody, db: AsyncSession = Depends(get_db)) -> dict:
+async def approve_route(approval_id: uuid.UUID, body: ApproveBody, request: Request,
+                        db: AsyncSession = Depends(get_db)) -> dict:
     try:
-        a = await approval_svc.approve(db, approval_id, reviewer=body.reviewer, payload=body.payload, note=body.note)
+        a = await approval_svc.approve(db, approval_id, reviewer=reviewer_for(request, body.reviewer),
+                                       payload=body.payload, note=body.note)
     except approval_svc.ApprovalError as exc:
         await db.commit()  # persist an expiry if one happened
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
@@ -243,9 +247,10 @@ async def approve_route(approval_id: uuid.UUID, body: ApproveBody, db: AsyncSess
 
 
 @approvals_router.post("/{approval_id}/reject", summary="Reject")
-async def reject_route(approval_id: uuid.UUID, body: ReviewBody, db: AsyncSession = Depends(get_db)) -> dict:
+async def reject_route(approval_id: uuid.UUID, body: ReviewBody, request: Request,
+                       db: AsyncSession = Depends(get_db)) -> dict:
     try:
-        a = await approval_svc.reject(db, approval_id, reviewer=body.reviewer, note=body.note)
+        a = await approval_svc.reject(db, approval_id, reviewer=reviewer_for(request, body.reviewer), note=body.note)
     except approval_svc.ApprovalError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     await db.commit()

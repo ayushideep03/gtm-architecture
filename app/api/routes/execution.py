@@ -12,7 +12,7 @@ import json
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.api.schemas.execution import (
     TaskRetryRequest,
 )
 from app.execution.recovery import RecoveryRefused, recover_stale_tasks, retry_failed_task
+from app.core.auth import reviewer_for
 from app.core.database import get_db
 from app.execution.executor import TaskExecutor
 from app.execution.models import (
@@ -175,10 +176,10 @@ async def get_task_route(
                 "needs_review require acknowledge_review=true after reconciling with the provider.",
 )
 async def retry_task_route(
-    task_id: uuid.UUID, body: TaskRetryRequest, db: AsyncSession = Depends(get_db)
+    task_id: uuid.UUID, body: TaskRetryRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> TaskDetailResponse:
     try:
-        await retry_failed_task(db, task_id, requested_by=body.requested_by, reason=body.reason,
+        await retry_failed_task(db, task_id, requested_by=reviewer_for(request, body.requested_by), reason=body.reason,
                                 acknowledge_review=body.acknowledge_review, extra_attempts=body.extra_attempts)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

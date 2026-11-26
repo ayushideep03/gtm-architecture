@@ -31,7 +31,8 @@ class Settings(BaseSettings):
     )
 
     # ── Environment ──────────────────────────────────────────────────────────
-    ENVIRONMENT: Literal["development", "staging", "production"] = "development"
+    # Fail safe: an unset ENVIRONMENT is production (auth required, signed webhooks, no demo routes).
+    ENVIRONMENT: Literal["development", "staging", "production"] = "production"
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # ── Application ──────────────────────────────────────────────────────────

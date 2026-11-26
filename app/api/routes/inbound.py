@@ -127,7 +127,7 @@ async def inbound_lead(request: Request, db: AsyncSession = Depends(get_db),
 
 class CSVImport(BaseModel):
     source: str = Field("csv_upload", pattern=r"^[a-z0-9_\-]{2,60}$")
-    csv: str
+    csv: str = Field(..., max_length=5_000_000)   # ~5 MB of CSV text per request
 
 
 @imports_router.post("/import", summary="Import leads from CSV text")

@@ -1,6 +1,7 @@
 import { useContext, useEffect, useState } from "react";
 import { Overview as OverviewData } from "./api";
 import { LiveContext, useData } from "./ui";
+import { useAuth } from "./auth";
 import Overview from "./views/Overview";
 import Prospects from "./views/Prospects";
 import ControlCentre from "./views/ControlCentre";
@@ -34,6 +35,7 @@ function readHash(): { view: View; status?: string; lead?: string } {
 export default function App() {
   const [route, setRoute] = useState(readHash());
   const live = useContext(LiveContext);
+  const auth = useAuth();
   const { data: ov } = useData<OverviewData>("/overview");
   useEffect(() => {
     const on = () => setRoute(readHash());
@@ -85,6 +87,11 @@ export default function App() {
           </span>
           <span>Engine: {engineLabel(engine)}</span>
           <span>Autonomy: {ov ? (ov.autonomy.paused ? "paused" : "running") : "—"}</span>
+          {auth.required ? (
+            <span>Signed in as {auth.principal} · <a href="#" onClick={(e) => { e.preventDefault(); auth.signOut(); }}>sign out</a></span>
+          ) : (
+            <span title="No OXYGEN_API_KEYS set; allowed only in development/demo profiles">Local mode: no sign-in</span>
+          )}
         </div>
       </aside>
       <main className="main">

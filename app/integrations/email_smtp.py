@@ -54,9 +54,12 @@ class _SmtpBase(ExecutionProvider):
     @classmethod
     def from_config(cls, pc, credentials: dict):
         from app.providers.loader import ProviderUnavailable
-        if not pc.settings.get("host") or not pc.settings.get("from_address"):
-            raise ProviderUnavailable("settings.host and settings.from_address are required")
-        return cls(name=pc.name, mode=pc.mode, timeout_s=pc.resilience.timeout_s, **{**pc.settings, **credentials})
+        merged = {**pc.settings, **credentials}   # host/from_address normally come from env credentials
+        if not merged.get("host") or not merged.get("from_address"):
+            raise ProviderUnavailable("host and from_address are required (SMTP_HOST, SMTP_FROM_ADDRESS)")
+        if bool(merged.get("username")) != bool(merged.get("password")):
+            raise ProviderUnavailable("set both SMTP_USERNAME and SMTP_PASSWORD, or neither")
+        return cls(name=pc.name, mode=pc.mode, timeout_s=pc.resilience.timeout_s, **merged)
 
     @property
     def provider_name(self) -> str:
@@ -174,6 +177,21 @@ def _ics_time(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def _one_line(value: Any) -> str:
+    return " ".join(str(value).split())
+
+
+def ics_text(value: Any) -> str:
+    """RFC 5545 TEXT escaping; line breaks become literal \\n, so content cannot add properties."""
+    s = str(value).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+    return s.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+
+
+def ics_param(value: Any) -> str:
+    """Parameter values (e.g. CN) may not contain control characters, ':' ';' ',' or quotes."""
+    return '"' + "".join(ch for ch in _one_line(value) if ch not in '";:,' and ch >= " ") + '"'
+
+
 class SmtpMeetingProvider(_SmtpBase):
     capability = "book_meeting"
 
@@ -196,12 +214,12 @@ class SmtpMeetingProvider(_SmtpBase):
         ics = "\r\n".join([
             "BEGIN:VCALENDAR", "PRODID:-//Oxygen//Sales OS//EN", "VERSION:2.0", "METHOD:REQUEST",
             "BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{_ics_time(datetime.now(timezone.utc))}",
-            f"DTSTART:{_ics_time(start)}", f"DTEND:{_ics_time(end)}", f"SUMMARY:{topic}",
-            f"ORGANIZER;CN={self.from_name or self.from_address}:mailto:{self.from_address}",
+            f"DTSTART:{_ics_time(start)}", f"DTEND:{_ics_time(end)}", f"SUMMARY:{ics_text(topic)}",
+            f"ORGANIZER;CN={ics_param(self.from_name or self.from_address)}:mailto:{self.from_address}",
             f"ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{person.email}",
-            f"DESCRIPTION:{(payload.get('agenda') or topic).replace(chr(10), ' ')}",
+            f"DESCRIPTION:{ics_text(payload.get('agenda') or topic)}",
             "STATUS:CONFIRMED", "SEQUENCE:0", "END:VEVENT", "END:VCALENDAR", ""])
-        msg = self._base_message(person.email, f"Invitation: {topic}", context.task_id)
+        msg = self._base_message(person.email, f"Invitation: {_one_line(topic)}", context.task_id)
         msg.set_content(f"{payload.get('message') or 'Sending a calendar invitation for our call.'}\n\n"
                         f"{topic} — {start.isoformat()} ({duration} min)")
         msg.add_alternative(ics, subtype="calendar", params={"method": "REQUEST"})

@@ -76,9 +76,15 @@ def create_app() -> FastAPI:
     # ── Middleware ────────────────────────────────────────────────────────────
     app.middleware("http")(logging_middleware)
 
+    # The dashboard is served from this same origin, so CORS is only for a separate dev server
+    # (Vite on :5173) or origins listed in CORS_ORIGINS. Never "*" together with credentials.
+    import os
+    origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+    if not origins and settings.is_development:
+        origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.is_development else [],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

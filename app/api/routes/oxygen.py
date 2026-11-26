@@ -9,7 +9,7 @@ Endpoints:
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.oxygen import (
@@ -129,7 +129,7 @@ async def engine_status() -> dict:
 
 
 @router.get("/leads/{lead_id}/decisions", summary="Decision history for a lead")
-async def lead_decisions(lead_id: uuid.UUID, limit: int = 50, db: AsyncSession = Depends(get_db)) -> list[dict]:
+async def lead_decisions(lead_id: uuid.UUID, limit: int = Query(50, ge=1, le=500), db: AsyncSession = Depends(get_db)) -> list[dict]:
     from app.memory.records import decisions_for_lead
     rows = await decisions_for_lead(db, lead_id, limit=limit)
     return [{

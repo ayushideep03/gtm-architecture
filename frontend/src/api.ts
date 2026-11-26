@@ -12,6 +12,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401) window.dispatchEvent(new Event("oxygen:unauthorized"));
   if (!res.ok) {
     let detail = res.statusText;
     try {

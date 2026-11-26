@@ -176,7 +176,11 @@ class TaskExecutor:
                               "attempt": task.attempt_count,
                               "provider": ranking.candidates[0].name, "selection": ranking.explain(),
                           }, default=str)))
-        await session.flush()
+        # Commit the claim BEFORE calling the provider. If this process dies mid-call, the task
+        # stays in_progress with a lease: other workers refuse it (ConcurrentExecutionError) and
+        # stale recovery flags external actions for review instead of re-sending them. With only
+        # a flush, a crash would roll the task back to 'pending' and the email would go out twice.
+        await session.commit()
 
         result, used, attempts, ambiguous = await self._run(
             task, capability, _loads(task.payload), ranking.candidates, session, cfg, external)

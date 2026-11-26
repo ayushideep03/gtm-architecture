@@ -83,11 +83,12 @@ async def react_to_events(db, limit: int = 500) -> int:
     """Turn new events into evaluation work items according to autonomy.reactions."""
     from app.memory.records import schedule_work
     rules = get_gtm_config().autonomy.reactions
-    state = await db.get(EventProcessingState, REACTIONS_CONSUMER, with_for_update=True)
-    if state is None:
-        state = EventProcessingState(consumer_name=REACTIONS_CONSUMER, processed_count=0)
-        db.add(state)
-        await db.flush()
+    # Create the cursor row race-free (two workers can start on an empty database), then lock it:
+    # only one worker turns a given batch of events into work at a time.
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    await db.execute(pg_insert(EventProcessingState).values(consumer_name=REACTIONS_CONSUMER, processed_count=0)
+                     .on_conflict_do_nothing(index_elements=["consumer_name"]))
+    state = await db.get(EventProcessingState, REACTIONS_CONSUMER, with_for_update=True, populate_existing=True)
     stmt = select(Event).order_by(Event.occurred_at, Event.id).limit(limit)
     if state.last_processed_timestamp is not None:
         stmt = stmt.where(tuple_(Event.occurred_at, Event.id) >
@@ -229,12 +230,17 @@ async def tick(worker: str = "worker", *, orchestrator=None, executor=None) -> d
                                     due_at=_now() + timedelta(days=1), created_by="autonomy")
                 await s.commit()
         else:
-            cycle = await run_lead_cycle(lead_id, orchestrator=orchestrator, executor=executor)
+            try:
+                cycle = await run_lead_cycle(lead_id, orchestrator=orchestrator, executor=executor)
+            except Exception as exc:  # noqa: BLE001 - one prospect's failure must not stop the others
+                logger.exception("Oxygen cycle failed for lead %s", lead_id)
+                report["cycles"].append({"lead_id": str(lead_id), "status": "error", "error": str(exc)[:200]})
+                continue   # the item keeps its lease; it is retried after expiry (attempts are capped)
             outcome = cycle["status"]
             report["cycles"].append({"lead_id": str(lead_id), "status": outcome,
                                      "action": getattr(cycle.get("decision"), "action", None)})
         async with AsyncSessionLocal() as s:
-            item = await s.get(WorkItem, item_id)
+            item = await s.get(WorkItem, item_id, with_for_update=True)
             if item is not None and item.finished_at is None:
                 await complete_work(s, item, outcome)
             await s.commit()

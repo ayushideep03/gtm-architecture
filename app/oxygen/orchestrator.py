@@ -17,7 +17,7 @@ from app.models.base import Event, Task
 from app.oxygen.context import OxygenContextBuilder
 from app.oxygen.decision import DeterministicDecisionEngine  # noqa: F401  (re-export)
 from app.oxygen.interfaces import DecisionEngine
-from app.oxygen.models import NON_ACTIONS, Decision, DecisionOutcome, OxygenContext
+from app.oxygen.models import NON_ACTIONS, Decision, DecisionOutcome
 from app.oxygen.registry import CapabilityRegistry, CatalogueCapabilityView, capability_registry
 
 logger = get_logger(__name__)
@@ -349,7 +349,7 @@ class OxygenOrchestrator:
                                 payload={"decision_id": str(record.id)})
         elif decision.action == "stop":
             for item in await open_work_for_lead(db, context.lead_id):
-                await complete_work(db, item, "stopped_by_oxygen")
+                await complete_work(db, item, "stopped_by_oxygen", force=True)
 
     async def _persist_decision(self, db, context, decision: Decision, status: str,
                                 guardrail_result: Optional[dict], task: Optional[Task], requires_approval: bool):

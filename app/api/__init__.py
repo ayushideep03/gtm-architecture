@@ -4,7 +4,10 @@ API routes package.
 Register all routers here so main.py only needs to import this module.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.api.routes.auth import router as auth_router
+from app.core.auth import require_principal
 
 from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.demo import router as demo_router
@@ -20,21 +23,16 @@ from app.api.routes.oxygen import router as oxygen_router
 from app.api.routes.revops import router as revops_router
 
 api_router = APIRouter(prefix="/api/v1")
+# Public: liveness, sign-in, and webhooks (which verify their own HMAC signatures).
 api_router.include_router(health_router)
-api_router.include_router(leads_router)
-api_router.include_router(enrichment_router)
-api_router.include_router(oxygen_router)
-api_router.include_router(execution_router)
-api_router.include_router(guardrails_router)
-api_router.include_router(revops_router)
-api_router.include_router(evals_router)
-api_router.include_router(memory_router)
-api_router.include_router(approvals_router)
-api_router.include_router(compliance_router)
+api_router.include_router(auth_router)
 api_router.include_router(webhooks_router)
-api_router.include_router(imports_router)
-api_router.include_router(autonomy_router)
-api_router.include_router(dashboard_router)
-api_router.include_router(demo_router)
+
+# Everything else requires an authenticated principal (see app/core/auth.py).
+_protected = [Depends(require_principal)]
+for _r in (leads_router, enrichment_router, oxygen_router, execution_router, guardrails_router, revops_router,
+           evals_router, memory_router, approvals_router, compliance_router, imports_router, autonomy_router,
+           dashboard_router, demo_router):
+    api_router.include_router(_r, dependencies=_protected)
 
 __all__ = ["api_router"]

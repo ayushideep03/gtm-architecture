@@ -104,7 +104,7 @@ async def check_db_health() -> dict:
         return {"status": "ok", "detail": "PostgreSQL reachable"}
     except OperationalError as exc:
         logger.error("Database health check failed: %s", exc)
-        return {"status": "error", "detail": str(exc)}
+        return {"status": "error", "detail": type(exc).__name__}  # details are logged, not returned to unauthenticated callers
     except Exception as exc:  # noqa: BLE001
         logger.error("Unexpected database error: %s", exc)
-        return {"status": "error", "detail": str(exc)}
+        return {"status": "error", "detail": type(exc).__name__}  # details are logged, not returned to unauthenticated callers
