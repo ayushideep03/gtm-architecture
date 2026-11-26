@@ -6,7 +6,9 @@ Register all routers here so main.py only needs to import this module.
 
 from fastapi import APIRouter, Depends
 
+from app.api.routes.admin import admin_router, integrations_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.pipeline import router as pipeline_router
 from app.core.auth import require_principal
 
 from app.api.routes.dashboard import router as dashboard_router
@@ -32,7 +34,7 @@ api_router.include_router(webhooks_router)
 _protected = [Depends(require_principal)]
 for _r in (leads_router, enrichment_router, oxygen_router, execution_router, guardrails_router, revops_router,
            evals_router, memory_router, approvals_router, compliance_router, imports_router, autonomy_router,
-           dashboard_router, demo_router):
+           dashboard_router, demo_router, pipeline_router, admin_router, integrations_router):
     api_router.include_router(_r, dependencies=_protected)
 
 __all__ = ["api_router"]

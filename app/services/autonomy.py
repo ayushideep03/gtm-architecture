@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import func, or_, select, tuple_
 
@@ -163,6 +163,16 @@ async def _cycles_today(lead_id: uuid.UUID) -> int:
             AgentDecision.lead_id == lead_id, AgentDecision.created_at >= _now() - timedelta(days=1)))).scalar() or 0
 
 
+async def _campaign_gate(lead_id: uuid.UUID) -> Optional[str]:
+    """None if the lead may be worked on; else the campaign status that holds it (paused/draft/stopped)."""
+    from app.models.base import Lead
+    from app.models.pipeline import Campaign
+    async with AsyncSessionLocal() as s:
+        status = (await s.execute(select(Campaign.status).join(Lead, Lead.campaign_id == Campaign.id)
+                                  .where(Lead.id == lead_id))).scalar_one_or_none()
+    return status if status in ("paused", "draft", "stopped") else None
+
+
 async def poll_inboxes() -> list[dict[str, Any]]:
     """Read every available ``receive_email`` provider (e.g. IMAP) into the inbound pipeline."""
     from app.providers import get_provider_registry
@@ -188,7 +198,7 @@ async def tick(worker: str = "worker", *, orchestrator=None, executor=None) -> d
     from app.memory.records import claim_due, complete_work, retire_exhausted, schedule_work
 
     report: dict[str, Any] = {"paused": False, "recovered": 0, "approvals_expired": 0, "reactions": 0,
-                              "attributions": 0, "inbox": [],
+                              "attributions": 0, "inbox": [], "follow_ups_due": 0, "held": 0,
                               "cycles": [], "tasks_executed": 0, "capped": 0}
     if await is_paused():
         report["paused"] = True
@@ -215,12 +225,31 @@ async def tick(worker: str = "worker", *, orchestrator=None, executor=None) -> d
         await s.commit()
 
     async with AsyncSessionLocal() as s:
+        from app.pipeline.followups import process_due
+        report["follow_ups_due"] = await process_due(s)
+        await s.commit()
+
+    async with AsyncSessionLocal() as s:
         items = await claim_due(s, worker=worker, limit=cfg.max_work_items_per_tick, lease_s=cfg.lease_s,
                                 kinds=EVALUATION_KINDS)
         claimed = [(i.id, i.lead_id, i.tenant_id) for i in items]
         await s.commit()
 
     for item_id, lead_id, tenant_id in claimed:
+        gate = await _campaign_gate(lead_id)
+        if gate is not None:
+            report["held"] += 1
+            async with AsyncSessionLocal() as s:
+                item = await s.get(WorkItem, item_id, with_for_update=True)
+                if item is not None and item.finished_at is None:
+                    if gate == "stopped":
+                        await complete_work(s, item, "campaign_stopped", force=True)
+                    else:   # paused / draft: hold; resuming the campaign wakes the lead again
+                        item.leased_until, item.leased_by = None, None
+                        item.due_at = _now() + timedelta(hours=1)
+                        item.attempts = max(0, item.attempts - 1)
+                await s.commit()
+            continue
         if await _cycles_today(lead_id) >= cfg.max_cycles_per_lead_per_day:
             outcome = "capped"
             report["capped"] += 1

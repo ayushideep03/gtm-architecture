@@ -156,8 +156,15 @@ class TaskAlreadyCompletedRule(GuardrailRuleEvaluator):
                            f"{len(completed)} time(s) for this lead (limit {policy.max_per_lead})")
         if policy.cooldown_s > 0:
             now = datetime.now(timezone.utc)
+            # Answering the prospect: a reply received after the earlier send waives the cooldown for
+            # outbound communication (the count limit above still applies), like the compliance gap waiver.
+            touches = ((context.compliance or {}).get("touches") or {})
+            last_reply = _parse_ts(touches.get("last_reply_at")) if spec.side_effect.value == "external_communication" \
+                else None
             for task in completed:
                 ts = _parse_ts(task.get("completed_at"))
+                if last_reply is not None and ts is not None and last_reply >= ts:
+                    continue
                 # Unknown completion time is treated as recent (fail closed).
                 if ts is None or (now - ts).total_seconds() < policy.cooldown_s:
                     return False, (f"Task '{spec.name}' has already been successfully completed "

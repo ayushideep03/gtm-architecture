@@ -18,6 +18,7 @@ llm:
     writer: {provider: demo, model: scripted-demo-playbook, fallback_profiles: []}
 autonomy:
   tick_interval_s: 4
+  max_work_items_per_tick: 40       # demo datasets are small; keep the whole pipeline moving
 runtime:
   key_prefix: gtm-demo
 providers:

@@ -323,8 +323,10 @@ class OxygenOrchestrator:
             draft = await db.get(Task, uuid.UUID(str(draft_id)))
         except ValueError:
             draft = None
+        usable_reply = draft is not None and draft.task_type == "draft_reply" and \
+            json.loads(draft.result or "{}").get("supported") is True       # a grounded answer, not an escalation
         if draft is None or draft.lead_id != context.lead_id or draft.status not in ("completed", "done") \
-                or draft.task_type != "draft_outreach":
+                or (draft.task_type != "draft_outreach" and not usable_reply):
             decision.action, decision.capability = "wait", None
             decision.reason = f"Referenced draft {draft_id} is not a completed draft for this lead"
             return

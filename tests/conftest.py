@@ -101,6 +101,12 @@ def _cleanup_session():
 
 # Tables in FK-safe deletion order (children before parents).
 _CLEANUP_TABLE_ORDER = [
+    "follow_ups",
+    "meetings",
+    "drafts",
+    "demo_clock",
+    "campaign_accounts",
+    "app_users",
     "approvals",
     "work_items",
     "agent_decisions",
@@ -115,6 +121,7 @@ _CLEANUP_TABLE_ORDER = [
     "interactions",
     "tasks",
     "leads",
+    "campaigns",
     "people",
     "companies",
 ]
@@ -197,6 +204,7 @@ def _db_isolation(request):
         "TestAttribution",
         "TestDashboard",
         "TestLearning",
+        "TestDemoPipeline", "TestTenantIsolation", "TestRolePermissions", "TestCampaignControls",
         "TestSmtp", "TestRoundTrip", "TestBillionMail", "TestReplyGapWaiver", "TestDemoScenarios",
     }
     if cls is None or cls.__name__ not in db_test_classes:

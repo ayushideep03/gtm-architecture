@@ -73,6 +73,20 @@ CORE_EVENT_TYPES: tuple[str, ...] = (
     # Autonomy
     "autonomy_paused",
     "autonomy_resumed",
+    # Campaign pipeline & demo control
+    "campaign_created",
+    "campaign_updated",
+    "campaign_active",
+    "campaign_paused",
+    "campaign_resumed",
+    "campaign_stopped",
+    "accounts_selected",
+    "account_discovered",
+    "account_discovery_failed",
+    "icp_recalculated",
+    "workflow_cancelled",
+    "demo_scenario_completed",
+    "demo_scenario_paused",
 )
 
 _lock = threading.Lock()
