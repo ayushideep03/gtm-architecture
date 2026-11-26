@@ -180,7 +180,7 @@ Interactive OpenAPI documentation will be accessible at:
 - **ReDoc**: `http://localhost:8000/redoc`
 
 ### 4. Running Tests
-The suite contains 391 tests (run against a separate `gtm_test` database) covering unit, integration, database isolation, API routes, and end-to-end flows:
+The suite contains 427 tests (run against a separate `gtm_test` database) covering unit, integration, database isolation, API routes, and end-to-end flows:
 ```bash
 # Run the complete test suite
 python -m pytest -v
@@ -211,7 +211,8 @@ mailbox. Each is implemented and tested against scripted responses, mocks or a l
 *unavailable* with the missing env var until configured. See README §5 for the per-integration table.
 
 **Constraints:**
-1. No API / dashboard authentication yet — run on a private network.
+1. API keys protect the API and dashboard (`OXYGEN_API_KEYS`), but there are no roles and the API is not
+   tenant-scoped: run one instance per organisation.
 2. Quiet hours and recipient time zones are not enforced.
 3. LinkedIn and phone are prepared by Oxygen and executed by a person (rep tasks); no automation by design.
 4. AutoClip video capability, Google Calendar / Calendly APIs are not implemented.
@@ -224,7 +225,8 @@ mailbox. Each is implemented and tested against scripted responses, mocks or a l
 1. **Go live with credentials, one at a time:** set `OPENAI_API_KEY`, run the four demo scenarios with real AI and
    review decisions and drafts; then a real mailbox (`SMTP_*`, `IMAP_*`) sending to internal test addresses only;
    then `APOLLO_API_KEY` with a small search.
-2. **Authentication and roles** for the API and dashboard (who may approve, who may change config).
+2. **Roles and per-key tenants** on top of the API-key authentication (who may approve, which organisation a
+   key belongs to).
 3. **Quiet hours / time-zone aware sending** in the compliance layer.
 4. **Evaluation on real data:** use the RevOps dashboard and attribution to compare prompts/angles once there are
    enough outcomes (the dashboard flags small samples).

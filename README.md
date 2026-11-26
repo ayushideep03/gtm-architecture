@@ -282,10 +282,10 @@ With a key, the AI capabilities switch on automatically (they outrank the mocks)
 | PostgreSQL CRM memory, identity resolution, evidence ledger | **Working, tested** | — |
 | Compliance (suppression, lawful basis, frequency caps, approvals) | **Working, tested** | — |
 | Worker, retries, leases, recovery, Redis health/rate limits | **Working, tested** | — |
-| SMTP email sending (`smtp_email`) | **Working, tested against a local SMTP server** (aiosmtpd); not yet run against a production mail provider | `SMTP_HOST`, `SMTP_FROM_ADDRESS`, `SMTP_USERNAME`, `SMTP_PASSWORD` |
+| SMTP email sending (`smtp_email`) | **Working end to end against a local SMTP server** (live run: API + 2 workers, approval → send → reply match → invite); login tested against a server requiring AUTH; not yet run against a production mail provider | `SMTP_HOST`, `SMTP_FROM_ADDRESS`; `SMTP_USERNAME` + `SMTP_PASSWORD` unless the relay accepts unauthenticated mail |
 | IMAP inbox (replies, bounces, calendar accept/decline) | **Parser and pipeline tested with real RFC 822 / DSN / iMIP messages**; the IMAP network fetch itself is not yet run against a live mailbox | `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` |
 | Meeting invites over email (iCalendar `METHOD:REQUEST`, `smtp_meetings`) | **Tested against a local SMTP server**; acceptance arrives via the IMAP poller | same SMTP settings |
-| OpenAI / Anthropic (AI Sales Controller, research, intent, qualification, drafting, reply classification) | **Code paths tested with scripted responses; not yet run with a live key** | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` |
+| OpenAI / Anthropic (AI Sales Controller, research, intent, qualification, drafting, reply classification) | **Adapters tested through the real installed SDKs with a fake HTTP transport** (request shape, parsing, refusals, truncation; every schema checked against OpenAI strict mode); controller logic tested with scripted responses; **not yet run with a live key** (model names and server-side schema acceptance unverified) | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` |
 | Apollo lead search | Built from Apollo's API reference; **mock-tested only** | `APOLLO_API_KEY` |
 | BillionMail sender | Built from BillionMail's source; **mock-tested only** (template must render `{{subject}}`/`{{body}}`) | `BILLIONMAIL_URL`, `BILLIONMAIL_API_KEY`, `BILLIONMAIL_ADDRESSER` |
 | Scout profile source | Tested against a fake checkout only | local Scout checkout path |
@@ -293,8 +293,16 @@ With a key, the AI capabilities switch on automatically (they outrank the mocks)
 | LinkedIn / phone | Not automated by design: Oxygen prepares the message/script and creates a **rep task** for a person | — |
 | Google Calendar / Calendly APIs | Not implemented (standards-based email invitations are used instead) | — |
 
-Further limitations: no user authentication on the API or dashboard yet (run it on a private network);
-quiet hours / recipient time zones are not enforced; the scripted demo playbook is a demo aid, not an AI.
+Authentication: every `/api/v1` route except health, signed webhooks and sign-in requires an API key
+(`OXYGEN_API_KEYS="name=key,..."`, header `X-API-Key` or the dashboard's HttpOnly sign-in cookie). Outside the
+development/demo/test profiles the API refuses requests (503) until keys are set. The key's name is recorded
+as the reviewer on approvals. There are no roles yet: every key can approve.
+
+Further limitations: the API is **not tenant-scoped** (tenancy exists in the data model, but a key sees all
+tenants: deploy one instance per organisation until per-key tenants exist); quiet hours / recipient time zones
+are not enforced; lead discovery runs on request (API, CSV, website form), not on a schedule; replies that ask a
+question are escalated to a human rather than answered by Oxygen; the scripted demo playbook is a demo aid, not
+an AI. Full findings: `docs/E2E_VALIDATION_REPORT.md`.
 
 Safety that holds in every profile: an AI decision is a proposal, not permission. Every external communication
 needs human approval (hash-locked content, re-checked against suppression/consent/frequency at send time), mock
@@ -366,6 +374,8 @@ LOG_LEVEL=INFO
 DATABASE_URL=postgresql://gtm_user:gtm_password@localhost:5432/gtm_db
 REDIS_URL=redis://localhost:6379/0
 SECRET_KEY=dev-secret-key-change-in-prod
+# API/dashboard sign-in (required outside development/demo/test): name=key pairs, keys >= 16 chars
+OXYGEN_API_KEYS=alex=<python -c "import secrets; print(secrets.token_urlsafe(32))">
 # Optional: which config/gtm.<profile>.yaml overlay to use (defaults to ENVIRONMENT)
 GTM_PROFILE=development
 ```
@@ -404,10 +414,16 @@ Leave it off to keep existing data.
 
 ## 7. How to Run Tests
 
-Run the complete test suite (391 tests). Tests use a separate `gtm_test` database (created and migrated
+Run the complete test suite (427 tests). Tests use a separate `gtm_test` database (created and migrated
 automatically) and their own Redis key prefix, so they never touch your development data:
 ```bash
 python -m pytest -v
+```
+
+Live end-to-end validation (real API + two workers + a local SMTP sink, isolated `gtm_e2e` database,
+36 stage checks; no mail leaves the machine):
+```bash
+python scripts/e2e/run_e2e.py
 ```
 
 Run targeted subsystem suites:

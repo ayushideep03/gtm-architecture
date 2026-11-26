@@ -67,9 +67,10 @@ def create_app() -> FastAPI:
             "Lead ingestion layer: source providers, normalization, persistence."
         ),
         version=settings.APP_VERSION,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        # Interactive API docs only outside production (they map every endpoint for an attacker).
+        docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+        redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc",
+        openapi_url=None if settings.ENVIRONMENT == "production" else "/openapi.json",
         lifespan=lifespan,
     )
 
