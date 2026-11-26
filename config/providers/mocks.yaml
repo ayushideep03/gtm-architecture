@@ -1,0 +1,45 @@
+# Mock / simulation providers. Included ONLY by development and test profiles.
+# Never referenced by the base config, so they are never production defaults.
+providers:
+  - name: mock_apollo
+    factory: app.integrations.mock_apollo:MockApolloProvider
+    capabilities: [find_leads]
+    priority: 50
+    tags: [mock]
+  - name: mock_scout
+    factory: app.integrations.mock_scout:MockScoutProvider
+    capabilities: [find_leads]
+    priority: 40
+    tags: [mock]
+  - name: mock_enrichment
+    factory: app.integrations.mock_enrichment:MockEnrichmentProvider
+    capabilities: [enrich_company, enrich_person]
+    priority: 50
+    tags: [mock]
+  - name: mock_lead_qualification
+    factory: app.execution.workers:MockLeadQualificationProvider
+    capabilities: [qualify_lead]
+    priority: 50
+    tags: [mock]
+  - name: mock_prospect_research
+    factory: app.integrations.gtm.research:MockProspectResearchProvider
+    capabilities: [research_prospect]
+    priority: 50
+    tags: [mock]
+  - name: mock_outreach_drafting
+    factory: app.integrations.gtm.outreach:MockOutreachDraftingProvider
+    capabilities: [draft_outreach]
+    priority: 50
+    tags: [mock]
+  - name: mock_outreach_send
+    factory: app.integrations.gtm.outreach:MockOutreachSendProvider
+    capabilities: [send_email]
+    mode: dry_run
+    priority: 50
+    tags: [mock]
+  - name: mock_meeting_booking
+    factory: app.integrations.gtm.meetings:MockMeetingBookingProvider
+    capabilities: [book_meeting]
+    mode: dry_run
+    priority: 50
+    tags: [mock]

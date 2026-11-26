@@ -1,8 +1,12 @@
 ﻿"""
-Deterministic Decision Engine for Oxygen.
+Deterministic (rules) decision engine for Oxygen.
 
-Applies explicit, testable, and deterministic policy rules to an OxygenContext.
-Contains NO LLM calls, NO arbitrary scoring logic, and NO invented probabilities.
+Role after the adaptive-Oxygen redesign: this is the FALLBACK engine, used
+when the LLM planner is disabled, unavailable or returns an invalid decision
+(Phase 5). It is intentionally conservative and predictable. It is not the
+intended primary planner, and the guardrails never depend on its sequence.
+
+Capability names are canonical catalogue names (app/capabilities).
 """
 
 from typing import Optional
@@ -12,6 +16,8 @@ from app.oxygen.models import Decision, DecisionReason, OxygenContext
 
 
 class DeterministicDecisionEngine(DecisionEngine):
+    engine_name = "rules"
+
     """
     Deterministic rule-based decision engine.
 
@@ -45,14 +51,14 @@ class DeterministicDecisionEngine(DecisionEngine):
             )
 
         # Rule 2: Company enrichment needed
-        if context.has_company and not context.is_company_enriched:
+        if context.has_company and not context.is_company_enriched and not context.has_attempted_task("enrich_company"):
             if context.has_pending_task("enrich_company"):
                 return Decision(
                     action="wait",
                     reason=DecisionReason.TASK_ALREADY_EXISTS.value,
                     target_id=context.company.id,
                     target_type="company",
-                    capability="company_enrichment",
+                    capability="enrich_company",
                     confidence=1.0,
                     source_event_ids=event_ids,
                 )
@@ -61,7 +67,7 @@ class DeterministicDecisionEngine(DecisionEngine):
                 reason=DecisionReason.COMPANY_ENRICHMENT_NEEDED.value,
                 target_id=context.company.id,
                 target_type="company",
-                capability="company_enrichment",
+                capability="enrich_company",
                 parameters={
                     "company_id": str(context.company.id),
                     "domain": context.company.domain,
@@ -71,14 +77,14 @@ class DeterministicDecisionEngine(DecisionEngine):
             )
 
         # Rule 3: Person enrichment needed
-        if context.has_person and not context.is_person_enriched:
+        if context.has_person and not context.is_person_enriched and not context.has_attempted_task("enrich_person"):
             if context.has_pending_task("enrich_person"):
                 return Decision(
                     action="wait",
                     reason=DecisionReason.TASK_ALREADY_EXISTS.value,
                     target_id=context.person.id,
                     target_type="person",
-                    capability="person_enrichment",
+                    capability="enrich_person",
                     confidence=1.0,
                     source_event_ids=event_ids,
                 )
@@ -87,7 +93,7 @@ class DeterministicDecisionEngine(DecisionEngine):
                 reason=DecisionReason.PERSON_ENRICHMENT_NEEDED.value,
                 target_id=context.person.id,
                 target_type="person",
-                capability="person_enrichment",
+                capability="enrich_person",
                 parameters={
                     "person_id": str(context.person.id),
                     "email": context.person.email,
@@ -103,7 +109,7 @@ class DeterministicDecisionEngine(DecisionEngine):
                 reason=DecisionReason.TASK_ALREADY_EXISTS.value,
                 target_id=context.lead_id,
                 target_type="lead",
-                capability="lead_qualification",
+                capability="qualify_lead",
                 confidence=1.0,
                 source_event_ids=event_ids,
             )
@@ -123,7 +129,7 @@ class DeterministicDecisionEngine(DecisionEngine):
             reason=DecisionReason.READY_FOR_EXECUTION.value,
             target_id=context.lead_id,
             target_type="lead",
-            capability="lead_qualification",
+            capability="qualify_lead",
             parameters={"lead_id": str(context.lead_id)},
             confidence=1.0,
             source_event_ids=event_ids,

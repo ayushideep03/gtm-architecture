@@ -91,7 +91,7 @@ def pick_lead(api: Api) -> tuple[str, dict]:
 
 
 def describe_decision(d: dict) -> str:
-    cap = f" via {d['capability']}" if d.get("capability") else ""
+    cap = f" via {d['capability']}" if d.get("capability") and d["capability"] != d["action"] else ""
     return f"{BOLD}{d['action']}{RESET}{cap}  {DIM}(reason: {d['reason']}){RESET}"
 
 

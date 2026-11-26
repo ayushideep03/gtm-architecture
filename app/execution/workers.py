@@ -119,10 +119,21 @@ class MockLeadQualificationProvider(ExecutionProvider):
 # ── Company Enrichment Execution Adapter ─────────────────────────────────────
 
 class CompanyEnrichmentExecutionAdapter(ExecutionProvider):
-    """Execution adapter delegating company enrichment to EnrichmentService."""
+    """
+    Execution adapter delegating company enrichment to EnrichmentService.
 
-    def __init__(self, enrichment_service: Optional[EnrichmentService] = None) -> None:
+    Kept for embedding/tests. The unified registry no longer needs it: enrichment
+    vendors are registered directly and invoked through the capability invoker.
+    ``enrichment_provider=None`` lets the ProviderSelector choose the vendor.
+    """
+
+    def __init__(
+        self,
+        enrichment_service: Optional[EnrichmentService] = None,
+        enrichment_provider: Optional[str] = None,
+    ) -> None:
         self.service = enrichment_service or EnrichmentService()
+        self.enrichment_provider = enrichment_provider
 
     @property
     def provider_name(self) -> str:
@@ -185,7 +196,7 @@ class CompanyEnrichmentExecutionAdapter(ExecutionProvider):
         outcome = await self.service.enrich_company_by_id(
             db=session,
             company_id=company_uuid,
-            provider_name="mock_enrichment",
+            provider_name=self.enrichment_provider,
         )
 
         if outcome.success:
@@ -213,10 +224,15 @@ class CompanyEnrichmentExecutionAdapter(ExecutionProvider):
 # ── Person Enrichment Execution Adapter ──────────────────────────────────────
 
 class PersonEnrichmentExecutionAdapter(ExecutionProvider):
-    """Execution adapter delegating person enrichment to EnrichmentService."""
+    """Execution adapter delegating person enrichment to EnrichmentService (see company adapter)."""
 
-    def __init__(self, enrichment_service: Optional[EnrichmentService] = None) -> None:
+    def __init__(
+        self,
+        enrichment_service: Optional[EnrichmentService] = None,
+        enrichment_provider: Optional[str] = None,
+    ) -> None:
         self.service = enrichment_service or EnrichmentService()
+        self.enrichment_provider = enrichment_provider
 
     @property
     def provider_name(self) -> str:
@@ -279,7 +295,7 @@ class PersonEnrichmentExecutionAdapter(ExecutionProvider):
         outcome = await self.service.enrich_person_by_id(
             db=session,
             person_id=person_uuid,
-            provider_name="mock_enrichment",
+            provider_name=self.enrichment_provider,
         )
 
         if outcome.success:
@@ -306,16 +322,17 @@ class PersonEnrichmentExecutionAdapter(ExecutionProvider):
 
 # ── Default Registration ─────────────────────────────────────────────────────
 
-def register_default_providers(registry: Optional[ExecutionRegistry] = None) -> None:
-    """Register default mock providers and adapters into registry."""
-    reg = registry or execution_registry
+def register_default_providers(registry: ExecutionRegistry) -> None:
+    """
+    Explicitly register the mock qualification provider and enrichment adapters
+    into a given registry. Never called automatically: the process-wide registry
+    is populated from configuration.
+    """
+    reg = registry
     reg.register(MockLeadQualificationProvider())
     reg.register(CompanyEnrichmentExecutionAdapter())
     reg.register(PersonEnrichmentExecutionAdapter())
 
-
-# Register defaults at import time
-register_default_providers(execution_registry)
 
 
 # ── Worker Entrypoint Function ───────────────────────────────────────────────

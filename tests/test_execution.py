@@ -578,8 +578,10 @@ class TestExecutionAPI:
         assert data["count"] >= 3
         provider_names = [p["provider_name"] for p in data["providers"]]
         assert "mock_lead_qualification" in provider_names
-        assert "mock_company_enrichment_adapter" in provider_names
-        assert "mock_person_enrichment_adapter" in provider_names
+        # Enrichment vendors are registered directly (no per-vendor adapter classes)
+        by_name = {p["provider_name"]: p for p in data["providers"]}
+        assert "enrich_company" in by_name["mock_enrichment"]["supported_task_types"]
+        assert "enrich_person" in by_name["mock_enrichment"]["supported_task_types"]
 
     @pytest.mark.anyio
     async def test_invalid_uuid_returns_422(self, app):

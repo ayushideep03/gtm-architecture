@@ -21,18 +21,23 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship, validates
 
 from app.core.database import Base
+from app.core.tenancy import DEFAULT_TENANT_ID
+from app.events.types import CORE_EVENT_TYPES, validate_event_type
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,6 +48,47 @@ def _uuid() -> uuid.UUID:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class TenantScoped:
+    """
+    Mixin adding ``tenant_id`` (FK organizations.id). Rows created without an
+    explicit tenant belong to the default organisation; ``None`` is coerced to
+    the default so the NOT NULL constraint always holds.
+    """
+
+    @declared_attr
+    def tenant_id(cls) -> Mapped[uuid.UUID]:
+        return mapped_column(
+            UUID(as_uuid=True),
+            ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+            index=True,
+            default=DEFAULT_TENANT_ID,
+            server_default=str(DEFAULT_TENANT_ID),
+        )
+
+    @validates("tenant_id")
+    def _default_tenant(self, key, value):
+        return value or DEFAULT_TENANT_ID
+
+
+# ── Organization (tenant) ─────────────────────────────────────────────────────
+
+
+class Organization(Base):
+    """A tenant. Every tenant-owned row references one organisation."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Organization id={self.id} slug={self.slug!r}>"
 
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
@@ -76,43 +122,18 @@ TASK_STATUS_VALUES = (
     "completed",
     "failed",
     "skipped",
+    "awaiting_approval",   # external action waiting for a human decision
+    "cancelled",           # approval rejected / expired, or withdrawn
 )
 
-EVENT_TYPE_VALUES = (
-    "lead_created",
-    "lead_enriched",
-    "lead_ingested",
-    "lead_qualified",
-    "lead_disqualified",
-    "email_sent",
-    "reply_received",
-    "meeting_booked",
-    "task_created",
-    "task_started",
-    "task_completed",
-    "task_failed",
-    "company_enriched",
-    "person_enriched",
-    "enrichment_completed",
-    "enrichment_failed",
-    "oxygen_decision",
-    "oxygen_task_created",
-    "oxygen_waiting",
-    "oxygen_no_action",
-    "guardrail_allowed",
-    "guardrail_blocked",
-    "prospect_researched",
-    "outreach_drafted",
-    "outreach_simulated",
-    "meeting_booking_simulated",
-    "crm_updated",
-)
+# Kept for backwards compatibility; the live set is app.events.types (extensible).
+EVENT_TYPE_VALUES = CORE_EVENT_TYPES
 
 
 # ── Company ───────────────────────────────────────────────────────────────────
 
 
-class Company(Base):
+class Company(TenantScoped, Base):
     """A target account / organisation."""
 
     __tablename__ = "companies"
@@ -151,7 +172,12 @@ class Company(Base):
         "Person", back_populates="company", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (UniqueConstraint("domain", name="uq_companies_domain"),)
+    __table_args__ = (
+        Index("uq_companies_tenant_domain", "tenant_id", "domain", unique=True,
+              postgresql_where=text("domain IS NOT NULL")),
+        Index("ix_companies_tenant_linkedin", "tenant_id", "linkedin_url",
+              postgresql_where=text("linkedin_url IS NOT NULL")),
+    )
 
     def __repr__(self) -> str:
         return f"<Company id={self.id} name={self.name!r}>"
@@ -160,7 +186,7 @@ class Company(Base):
 # ── Person ────────────────────────────────────────────────────────────────────
 
 
-class Person(Base):
+class Person(TenantScoped, Base):
     """A human contact — employee of a Company."""
 
     __tablename__ = "people"
@@ -203,7 +229,12 @@ class Person(Base):
         "Lead", back_populates="person", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (UniqueConstraint("email", name="uq_people_email"),)
+    __table_args__ = (
+        Index("uq_people_tenant_email", "tenant_id", "email", unique=True,
+              postgresql_where=text("email IS NOT NULL")),
+        Index("ix_people_tenant_linkedin", "tenant_id", "linkedin_url",
+              postgresql_where=text("linkedin_url IS NOT NULL")),
+    )
 
     def __repr__(self) -> str:
         return f"<Person id={self.id} email={self.email!r}>"
@@ -212,7 +243,7 @@ class Person(Base):
 # ── Lead ──────────────────────────────────────────────────────────────────────
 
 
-class Lead(Base):
+class Lead(TenantScoped, Base):
     """
     A qualified sales opportunity tied to a Person (and indirectly a Company).
 
@@ -220,6 +251,10 @@ class Lead(Base):
     """
 
     __tablename__ = "leads"
+    __table_args__ = (
+        Index("uq_leads_open_person", "tenant_id", "person_id", unique=True,
+              postgresql_where=text("is_open AND person_id IS NOT NULL")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=_uuid
@@ -238,6 +273,17 @@ class Lead(Base):
     )
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # True while the lead is not in a terminal status (terminal statuses come from
+    # config: identity.lead.terminal_statuses). A partial unique index on
+    # (tenant_id, person_id) WHERE is_open guarantees one open lead per person.
+    is_open: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+
+    @validates("status")
+    def _track_open(self, key, value: str) -> str:
+        from app.core.gtm_config import get_gtm_config
+        terminal = get_gtm_config().for_tenant(self.tenant_id).identity.lead.terminal_statuses
+        self.is_open = value not in terminal
+        return value
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
@@ -265,7 +311,7 @@ class Lead(Base):
 # ── Interaction ───────────────────────────────────────────────────────────────
 
 
-class Interaction(Base):
+class Interaction(TenantScoped, Base):
     """
     A recorded touchpoint between the system and a prospect.
 
@@ -298,6 +344,12 @@ class Interaction(Base):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False, index=True
     )
+    # Memory links: which task produced it, which channel/provider, structured details
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
@@ -312,7 +364,7 @@ class Interaction(Base):
 # ── Task ──────────────────────────────────────────────────────────────────────
 
 
-class Task(Base):
+class Task(TenantScoped, Base):
     """
     A unit of work assigned to an agent or human.
 
@@ -320,6 +372,10 @@ class Task(Base):
     """
 
     __tablename__ = "tasks"
+    __table_args__ = (
+        Index("uq_tasks_tenant_idempotency", "tenant_id", "idempotency_key", unique=True,
+              postgresql_where=text("idempotency_key IS NOT NULL")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=_uuid
@@ -345,6 +401,18 @@ class Task(Base):
     )  # JSON-encoded result after execution
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── Reliability / recovery ───────────────────────────────────────────────
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = config default
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Set when an external action's outcome is unknown; a human must reconcile before any retry.
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Unique per tenant (partial index) for capabilities that declare idempotency fields.
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     due_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -368,7 +436,7 @@ class Task(Base):
 # ── Event ─────────────────────────────────────────────────────────────────────
 
 
-class Event(Base):
+class Event(TenantScoped, Base):
     """
     An immutable domain event (append-only log).
 
@@ -384,11 +452,7 @@ class Event(Base):
     lead_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    event_type: Mapped[str] = mapped_column(
-        Enum(*EVENT_TYPE_VALUES, name="event_type"),
-        nullable=False,
-        index=True,
-    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     payload: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # JSON-encoded event payload
@@ -403,8 +467,39 @@ class Event(Base):
     # ── Relationships ─────────────────────────────────────────────────────────
     lead: Mapped["Lead | None"] = relationship("Lead", back_populates="events")
 
+    @validates("event_type")
+    def _check_event_type(self, key, value: str) -> str:
+        return validate_event_type(value)
+
     def __repr__(self) -> str:
         return f"<Event id={self.id} type={self.event_type!r}>"
+
+
+# ── Source records (lead-source identity mapping) ────────────────────────────
+
+
+class SourceRecord(TenantScoped, Base):
+    """
+    Maps a provider's own record id (source, external_id) to our entities, so a
+    re-import of the same record resolves to the same company / person / lead
+    even if its email or domain changed at the source.
+    """
+
+    __tablename__ = "source_records"
+    __table_args__ = (UniqueConstraint("tenant_id", "source", "external_id", name="uq_source_records_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(128), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
+    person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id", ondelete="SET NULL"), nullable=True, index=True)
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True)
+    times_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
 
 # ── Event Processing State (RevOps durable cursor) ───────────────────────────

@@ -100,7 +100,14 @@ class OxygenContextBuilder:
                 or has_enrichment_completed_event
             )
 
+        from app.memory.context import build_prospect_memory
+        memory = await build_prospect_memory(db, lead_id)
+        if memory is not None:
+            from app.revops.insights import planner_insights
+            memory["insights"] = await planner_insights(db, lead)
+
         return OxygenContext(
+            memory=memory,
             lead_id=lead_id,
             lead=lead,
             person=person,

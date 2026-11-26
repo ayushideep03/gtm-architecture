@@ -8,8 +8,16 @@ Never hardcode secrets here.
 from functools import lru_cache
 from typing import Literal
 
+from dotenv import load_dotenv
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Export .env values into the process environment (without overriding real
+# environment variables), so provider credentials referenced by env-var name in
+# the GTM config (e.g. OPENAI_API_KEY) resolve the same way in every process.
+load_dotenv(".env", override=False)
 
 
 class Settings(BaseSettings):

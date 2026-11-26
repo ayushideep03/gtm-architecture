@@ -12,7 +12,11 @@ from app.guardrails.models import (
     GuardrailSeverity,
 )
 from app.guardrails.rules import (
+    ContactFrequencyRule,
     DuplicateActiveTaskRule,
+    LawfulBasisRule,
+    SuppressionRule,
+    IdempotencyRule,
     ExecutionCapabilityNotRegisteredRule,
     MissingRequiredCRMEntityRule,
     MissingRequiredTaskPayloadRule,
@@ -119,6 +123,10 @@ def create_default_guardrail_registry() -> GuardrailRegistry:
     registry.register(ExecutionCapabilityNotRegisteredRule())
     registry.register(UnsupportedTaskTypeRule())
     registry.register(MissingRequiredCRMEntityRule())
+    registry.register(IdempotencyRule())
+    registry.register(SuppressionRule())
+    registry.register(LawfulBasisRule())
+    registry.register(ContactFrequencyRule())
     registry.register(SafeValidInternalExecutionRule())
     return registry
 

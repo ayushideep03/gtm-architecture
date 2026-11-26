@@ -170,7 +170,9 @@ class TestIngestionWithDatabase:
         assert summary.companies_created == 1
         assert summary.companies_existing == 1
         assert summary.people_created == 2  # two different emails
+        # two different people at the same company each get their own lead
         assert summary.leads_created == 2
+        assert summary.leads_existing == 0
 
     @pytest.mark.anyio
     async def test_same_email_does_not_create_second_person(self):
@@ -196,7 +198,9 @@ class TestIngestionWithDatabase:
         assert summary.people_created == 1
         assert summary.people_existing == 1
         # Two leads for one person (two opportunity signals)
-        assert summary.leads_created == 2
+        # Phase 2: the same person gets ONE open lead; the second sighting is attached to it
+        assert summary.leads_created == 1
+        assert summary.leads_existing == 1
 
     @pytest.mark.anyio
     async def test_source_preserved_on_lead(self):
@@ -211,21 +215,20 @@ class TestIngestionWithDatabase:
             pytest.skip(f"PostgreSQL not available: {db_status['detail']}")
 
         svc = LeadIngestionService()
-        record = make_record(
-            source="mock_apollo",
-            email=f"src_test_{uuid.uuid4().hex[:8]}@sourcetest.test",
-        )
+        email = f"src_test_{uuid.uuid4().hex[:8]}@sourcetest.test"
+        record = make_record(source="mock_apollo", email=email)
 
         async with AsyncSessionLocal() as session:
             summary = await svc.ingest_batch([record], session, "mock_apollo")
             await session.commit()
-            # Re-query to verify persistence
-            result = await session.execute(
-                select(Lead).where(Lead.id == summary.leads_created and True)
-            )
+            from app.models.base import Person
+            lead = (await session.execute(
+                select(Lead).join(Person, Person.id == Lead.person_id).where(Person.email == email)
+            )).scalar_one()
 
         assert summary.leads_created == 1
         assert len(summary.errors) == 0
+        assert lead.source == "mock_apollo"
 
     @pytest.mark.anyio
     async def test_lead_ingested_event_is_created(self):
@@ -328,7 +331,9 @@ class TestIngestionWithDatabase:
         assert second.people_existing == 1
         # Both runs create leads (lead = opportunity signal, not a unique contact)
         assert first.leads_created == 1
-        assert second.leads_created == 1
+        # Phase 2: re-importing the same records must not create duplicate leads
+        assert second.leads_created == 0
+        assert second.leads_existing == 1
 
     @pytest.mark.anyio
     async def test_mock_scout_deduplicates_against_apollo_person(self):

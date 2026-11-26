@@ -123,7 +123,7 @@ class TestOxygenUnit:
         assert decision.action == "enrich_company"
         assert decision.target_id == comp.id
         assert decision.target_type == "company"
-        assert decision.capability == "company_enrichment"
+        assert decision.capability == "enrich_company"
         assert decision.parameters["domain"] == "quantum.io"
 
     def test_rule_company_enrichment_already_pending_waits(self):
@@ -164,7 +164,7 @@ class TestOxygenUnit:
         assert decision.action == "enrich_person"
         assert decision.target_id == person.id
         assert decision.target_type == "person"
-        assert decision.capability == "person_enrichment"
+        assert decision.capability == "enrich_person"
         assert decision.parameters["email"] == "alice@quantum.io"
 
     def test_rule_person_enrichment_already_pending_waits(self):
@@ -207,7 +207,7 @@ class TestOxygenUnit:
         decision = engine.decide(ctx)
         assert decision.action == "qualify_lead"
         assert decision.target_id == lead_id
-        assert decision.capability == "lead_qualification"
+        assert decision.capability == "qualify_lead"
         assert decision.reason == DecisionReason.READY_FOR_EXECUTION.value
 
     def test_rule_execution_task_pending_waits(self):
@@ -410,7 +410,7 @@ class TestOxygenWithDatabase:
 
             payload = json.loads(event.payload)
             assert payload["action"] == "enrich_company"
-            assert payload["capability"] == "company_enrichment"
+            assert payload["capability"] == "enrich_company"
             assert payload["task_created"] is True
 
     @pytest.mark.anyio
@@ -515,9 +515,11 @@ class TestOxygenAPI:
         body = response.json()
         assert "capabilities" in body
         names = [c["name"] for c in body["capabilities"]]
-        assert "company_enrichment" in names
-        assert "person_enrichment" in names
-        assert "lead_qualification" in names
+        assert "enrich_company" in names
+        assert "enrich_person" in names
+        assert "qualify_lead" in names
+        # GTM capabilities are now visible to Oxygen (previously only 4 were registered)
+        assert {"research_prospect", "draft_outreach", "send_email", "book_meeting"} <= set(names)
 
     def test_invalid_uuid_returns_422(self, client):
         response = client.post("/api/v1/oxygen/leads/not-a-uuid/decide")
@@ -566,7 +568,7 @@ class TestOxygenAPI:
             assert response.status_code == 200
             body = response.json()
             assert body["action"] == "enrich_company"
-            assert body["capability"] == "company_enrichment"
+            assert body["capability"] == "enrich_company"
             assert "domain" in body["parameters"]
 
     @pytest.mark.anyio

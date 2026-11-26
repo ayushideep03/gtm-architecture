@@ -40,6 +40,7 @@ from app.integrations.gtm.outreach import (
 )
 from app.integrations.gtm.research import MockProspectResearchProvider
 from app.models.base import Company, Event, Interaction, Lead, Person, Task
+from tests.compliance_helpers import approve, make_contactable
 
 
 # -----------------------------------------------------------------------------
@@ -218,6 +219,10 @@ class TestGTMCapabilitiesWithDatabase:
                 }),
             )
             session.add(task)
+            await session.flush()
+            # External communication requires consent + human approval (Phase A policy)
+            await make_contactable(session, lead)
+            await approve(session, task)
             await session.commit()
             task_id = task.id
             lead_id = lead.id
@@ -253,6 +258,9 @@ class TestGTMCapabilitiesWithDatabase:
                 payload=json.dumps({"topic": "Executive Demo"}),
             )
             session.add(task)
+            await session.flush()
+            await make_contactable(session, lead)
+            await approve(session, task)
             await session.commit()
             task_id = task.id
             lead_id = lead.id

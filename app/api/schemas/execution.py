@@ -23,6 +23,12 @@ class TaskDetailResponse(BaseModel):
     completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    attempt_count: int = 0
+    max_attempts: Optional[int] = None
+    next_attempt_at: Optional[datetime] = None
+    last_error_code: Optional[str] = None
+    needs_review: bool = False
+    idempotency_key: Optional[str] = None
 
 
 class ExecutionResponse(BaseModel):
@@ -47,7 +53,14 @@ class ExecutionProviderResponse(BaseModel):
     """Schema describing an individual registered execution provider."""
 
     provider_name: str
-    supported_task_types: list[str]
+    supported_task_types: list[str]          # canonical capability names
+    available: bool = True
+    unavailable_reason: Optional[str] = None
+    enabled: bool = True
+    mode: str = "live"
+    priority: int = 50
+    cost_per_call: float = 0.0
+    tags: list[str] = []
 
 
 class ExecutionProviderListResponse(BaseModel):
@@ -55,3 +68,17 @@ class ExecutionProviderListResponse(BaseModel):
 
     count: int
     providers: list[ExecutionProviderResponse]
+
+
+class TaskRetryRequest(BaseModel):
+    """Explicit, audited retry of a failed task."""
+
+    requested_by: str
+    reason: str = ""
+    acknowledge_review: bool = False   # required when the task is flagged needs_review
+    extra_attempts: Optional[int] = None
+
+
+class StaleRecoveryResponse(BaseModel):
+    resumed: list[uuid.UUID]
+    flagged_for_review: list[uuid.UUID]

@@ -48,5 +48,6 @@ class IngestResponse(BaseModel):
     people_created: int
     people_existing: int
     leads_created: int
+    leads_existing: int = 0   # sightings attached to an existing lead (no duplicate created)
     events_created: int
     errors: list[str] = []

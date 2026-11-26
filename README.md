@@ -6,9 +6,60 @@ An enterprise-grade, event-driven **Autonomous AI Sales / Go-To-Market (GTM) Arc
 
 > "PostgreSQL CRM state and Task state are authoritative. Events provide the append-only feedback/audit stream."
 
+## Quick start (one command, macOS / Linux / Windows)
+
+Prerequisites: Python 3.11+, PostgreSQL and Redis running (see §6), Node.js 18+ (only to build the dashboard once).
+
+```bash
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python start.py
+```
+
+`start.py` checks PostgreSQL and Redis, applies migrations, builds the dashboard if needed, starts the API **and**
+the background worker, and opens **http://127.0.0.1:8000/**. Ctrl+C stops everything.
+
+- **No LLM key set →** it runs the `demo` profile: a clearly labelled *scripted demo playbook* stands in for the
+  language model (vendor `demo`, model `scripted-demo-playbook`; the dashboard shows a banner), and four labelled
+  SAMPLE prospects are loaded. Everything still goes through the real guardrails, compliance and approval gates.
+- **`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set →** it runs the `development` profile with the real AI Sales
+  Controller (mock providers only where no real credentials exist).
+- Options: `--profile <name>`, `--port`, `--no-worker`, `--no-browser`, `--no-seed`, `--rebuild`.
+
+### The dashboard (`frontend/`, React + TypeScript)
+
+| View | What it shows / does |
+| :--- | :--- |
+| **Overview** | KPI tiles from persisted data (click through), prospects by stage, recent activity, demo scenario loader |
+| **Lead Intelligence** | Searchable prospect list; detail drawer with contact/company, scored facts, compliance state, research findings, decision history, timeline, tasks; **Run Oxygen** button; reply simulator (demo profiles only) |
+| **Oxygen Control Centre** | Live event feed (SSE), every decision with reasoning, confidence, evidence, risks, guardrail result, provider and execution result; engine/campaign status; pause / resume / run-tick; human work queue; provider availability with reasons |
+| **Pipeline** | Prospects by stage (stages move only on real events) |
+| **Approval Centre** | Every external action waits here: view the draft, **edit**, approve or reject, with Oxygen's reasoning, the evidence it cited and the current compliance state |
+| **RevOps** | Funnel, reply/positive/meeting rates by channel and segment (small samples flagged), approvals and decision stats, provider success/latency, recommendations (never auto-applied) |
+
+Development: `cd frontend && npm install && npm run dev` (Vite on :5173, proxies `/api` to :8000).
+
+### Demo scenarios
+
+`POST /api/v1/demo/seed` (or the Overview button) creates four fictional prospects on reserved `.example` domains:
+
+| Scenario | What Oxygen does |
+| :--- | :--- |
+| High intent (Priya Shah, VP Sales) | intent → qualify → personalised draft → **approval** → send; simulate a positive reply → meeting invite → **approval** → accept → meeting booked → hand-off to a person |
+| Insufficient information (Sam Taylor) | enrichment finds nothing → **escalates to a human** instead of guessing |
+| No response (Marco Rossi) | first email 4 days ago → follow-up draft that adds something new → **approval**; stops after the sequence |
+| Negative response (Elena Novak) | "Please remove me" reply → deterministic opt-out → suppression + consent withdrawn → **stops** |
+
+Replies are simulated through the real inbound pipeline (`POST /api/v1/demo/leads/{id}/simulate-reply`). Demo
+endpoints return 404 outside the `development`, `demo` and `test` profiles.
+
 ---
 
 ## 1. Complete Architecture Diagram
+
+![Oxygen architecture](docs/gtm_architecture.png)
+
+(Source: `docs/gtm_architecture.svg`.) The original layered view:
 
 ```
                  Lead Sources (Apollo, Scout, CSV, Inbound)
@@ -93,39 +144,162 @@ An enterprise-grade, event-driven **Autonomous AI Sales / Go-To-Market (GTM) Arc
 
 ---
 
-## 4. Provider Replaceability Strategy
+## 4. Capabilities, Providers & Configuration
 
-Every GTM capability implements the `ExecutionProvider` interface:
-```python
-class ExecutionProvider(ABC):
-    @property
-    @abstractmethod
-    def provider_name(self) -> str: ...
+The system separates **what** can be done from **who** does it:
 
-    @property
-    @abstractmethod
-    def supported_task_types(self) -> list[str]: ...
+- **Capabilities** (`app/capabilities/`) are vendor-neutral contracts: `find_leads`, `enrich_company`,
+  `enrich_person`, `qualify_lead`, `research_prospect`, `draft_outreach`, `send_email`, `book_meeting`,
+  `crm_update`. Each declares an input schema, side-effect class (`read_only`, `internal_write`,
+  `external_communication`, `spend`), required data (e.g. `person.email`), repeatability policy and aliases.
+  Guardrails and Oxygen read this metadata; no rule names a specific task type.
+- **Providers** are concrete integrations. Several providers can serve one capability. All providers are
+  loaded from configuration into one registry (`app/providers/`); nothing registers itself on import.
+- **Provider selection** happens per call (`ProviderSelector`): providers are filtered by tenant policy,
+  credentials, constraints (e.g. region), cost ceiling, failure cooldown and rate limits, then ranked by
+  configured priority, observed reliability (from the event log), latency and cost. The executor fails
+  over to the next provider on retryable errors (timeout, exception, rate limit) and records every attempt.
 
-    @abstractmethod
-    async def execute(self, context: ExecutionContext, session: Optional[AsyncSession] = None) -> ExecutionResult: ...
+### Configuration files (`config/`)
+| File | Purpose |
+| :--- | :--- |
+| `gtm.yaml` | Base, production-safe config: LLM profiles (OpenAI default), selection weights, approval policy, the built-in CRM provider. **No mock providers.** |
+| `gtm.<profile>.yaml` | Profile overlay, chosen by `GTM_PROFILE` (falls back to `ENVIRONMENT`). `development` and `test` include `providers/mocks.yaml`. |
+| `providers/mocks.yaml` | Mock/simulation providers, enabled only by explicit include. |
+| `$GTM_CONFIG_FILE` | Optional deployment overlay (real vendors, keys, tenants). |
+
+Providers merge by `name` across layers. Secrets are referenced by environment-variable **name** only:
+
+```yaml
+providers:
+  - name: acme_enrichment
+    factory: my_integrations.acme:AcmeEnrichment   # implements CompanyEnrichmentProvider
+    capabilities: [enrich_company, enrich_person]
+    priority: 70
+    cost_per_call: 0.02
+    credentials: {api_key: ACME_API_KEY}            # read from the environment
+    resilience: {timeout_s: 10, max_retries: 2}
+    rate_limit: {requests: 100, per_seconds: 60}
+    constraints: {region: [EU, US]}
 ```
 
-To replace any mock provider with a real external provider (e.g., Apollo, SendGrid, Calendly, Salesforce):
-1. Implement the provider conforming to `ExecutionProvider`.
-2. Register the provider instance in `ExecutionRegistry.register_provider(new_provider)`.
-3. **Zero changes** are required to Oxygen, Guardrails, CRM models, TaskExecutor, RevOps, or Evals.
+A provider with missing credentials, a broken factory or the wrong interface is registered as
+*unavailable* (with the reason, visible at `GET /api/v1/execution/providers`) and is never selected.
+
+Per-tenant overrides (`tenants: {<org-id>: {...}}`) can disable providers or capabilities, change
+priorities or approval policy for one organisation. Every tenant-owned table has `tenant_id`.
+
+To add an integration: implement the provider interface for its capability and add a config entry.
+**No changes** to Oxygen, guardrails, the executor or the selector.
+
+### Reliability, identity & recovery (Phase 2)
+- **Identity:** one `IdentityResolver` (tenant-scoped, exact keys in configured order: source record → email →
+  LinkedIn → name+company). Re-importing a person attaches to their open lead; the database enforces one open
+  lead per person and unique domains / emails per tenant.
+- **Shared provider state:** failure cooldowns and rate limits are kept in Redis, shared by all workers.
+- **Retries:** transient failures retry on the same provider, fail over, then reschedule the task with
+  backoff (`execution.retry`). External actions with an unknown outcome are **never** retried automatically;
+  they are flagged `needs_review`.
+- **Recovery:** `POST /api/v1/execution/tasks/{id}/retry` re-queues a failed task (same row, audited);
+  `POST /api/v1/execution/recover-stale` handles tasks whose execution lease expired.
+
+### AI Sales Controller (Phase B)
+Oxygen's decision engine is an LLM planner (`oxygen.decision_engine: llm`). For each prospect it reads the
+full sales memory and the campaign objective (`oxygen.campaign` in config), chooses one action from the
+capabilities currently possible for that lead (or `wait` / `stop` / `escalate`), and returns a structured
+proposal with reasoning, cited evidence, expected outcome, confidence, uncertainty, risks and alternatives.
+Every proposal is validated, then passes the same guardrails, compliance checks and human approval as
+before. Without an API key it falls back to the deterministic rules engine and labels the decision so.
+
+Enable it by adding a key to `.env` (the model per role is set in `config/gtm.yaml` → `llm.profiles`):
+```bash
+OPENAI_API_KEY=sk-...          # default planner (gpt-4.1)
+ANTHROPIC_API_KEY=sk-ant-...   # backup planner (claude-opus-5-5)
+```
+Check: `GET /api/v1/oxygen/engine`. Run one cycle for a lead: `POST /api/v1/oxygen/leads/{id}/cycle`.
+
+With a key, the AI capabilities switch on automatically (they outrank the mocks):
+- **Research** reads only the prospect company's own website; every finding must quote the page verbatim
+  (checked in code) and website facts stay *proposed* until corroborated.
+- **Intent analysis** and **qualification** (against `oxygen.campaign`, with a deterministic score floor)
+  cite memory evidence for every signal and score.
+- **Drafting** writes email / LinkedIn / call scripts that must pass the content policy in
+  `oxygen.outreach` (banned phrases, length, placeholders, evidence-backed personalisation, opt-out footer).
+- **Rep tasks** hand LinkedIn and phone actions to a person with the prepared message or script.
+
+### Email, meetings & inbox (Phase G)
+- `smtp_email` (`send_email`): any SMTP server. The recipient is always the prospect's stored address (a payload
+  naming anyone else is refused), and the `Message-ID` is derived from the task id, so replies map back to the
+  exact touch. SMTP has no server-side de-duplication, so an ambiguous failure goes to human review instead of a
+  retry. `mode: dry_run` records the touch without connecting.
+- `smtp_meetings` (`book_meeting`): sends an iCalendar invitation for the next slot in configured availability
+  (`settings.availability`: timezone, weekdays, hours, minimum notice). Booked when the attendee accepts.
+- `imap_inbox` (`receive_email`): the worker polls it every tick. Delivery-status reports become bounces
+  (5.x.x = hard → suppression), iCalendar replies become meeting booked / cancelled, everything else becomes a reply
+  matched by `In-Reply-To` / `References` / sender, then flows through opt-out rules, classification and reactions.
+- `billionmail` (`send_email`, optional): HTTP adapter for a self-hosted BillionMail (AGPL — run as a separate,
+  unmodified container).
+- All four stay **unavailable** (with the missing env vars shown in the Control Centre) until configured.
+- Compliance: the 48h minimum gap between touches is waived when the prospect has replied since our last touch
+  (`compliance.waive_gap_after_reply`) — answering someone is not an unsolicited follow-up. Caps still apply.
+
+### Event-driven autonomy & inbound events (Phases D/E)
+- **Run the loop:** `python -m app.worker` (continuous) or `POST /api/v1/autonomy/tick` (one step, handy in demos).
+  Events listed under `autonomy.reactions` (new lead, task done, reply, bounce, meeting…) wake Oxygen for that
+  prospect. Pause everything with `POST /api/v1/autonomy/pause`; a daily per-prospect cycle cap applies.
+- **Inbound webhooks** (`/api/v1/webhooks/email`, `/calendar`, `/inbound-lead`) take a vendor-neutral JSON format,
+  signed with `X-Oxygen-Timestamp` + `X-Oxygen-Signature` = HMAC-SHA256(`OXYGEN_WEBHOOK_SECRET`, `"<ts>.<body>"`).
+  Opt-out replies are detected deterministically and always suppress the contact.
+- **Lead sources:** CSV (`POST /api/v1/leads/import` with `{"source": "...", "csv": "..."}`), website forms,
+  Apollo (`APOLLO_API_KEY`; search + capped credit-consuming enrichment — not yet verified live), and a narrow
+  Scout profile adapter (`providers[scout].settings.scout_path`).
+
+### RevOps & learning (Phase F)
+- `GET /api/v1/revops/dashboard?days=90` — funnel, conversion, reply / positive / meeting rates by channel, angle,
+  engine, segment and research, qualification accuracy, provider reliability and cost, approvals, guardrail
+  blocks, and evidence-backed recommendations (for humans; nothing changes automatically).
+- Every outbound touch is attributed to its outcome (`GET /api/v1/revops/outcomes`), refreshed by the worker.
+- Oxygen learns from outcomes in two bounded ways: the planner receives peer-segment insights as evidence
+  (`GET /api/v1/revops/insights/leads/{id}`), and provider selection weighs each provider's positive-outcome rate.
+
+### Sales memory & compliance (Phase A)
+- **Prospect memory:** `GET /api/v1/memory/leads/{id}` returns the CRM record, every fact with its evidence
+  (source, time, confidence band, lifecycle status), findings, interactions, Oxygen's decision history,
+  tasks, approvals, scheduled rechecks and live compliance status.
+- **Evidence ledger:** ingestion, enrichment and humans write values as facts; confidence comes from
+  configured evidence weights (`memory:` in config). Weak or conflicting claims are *proposed* for review.
+- **Approval:** every external communication waits in `GET /api/v1/approvals` until a person approves
+  (optionally editing it) or rejects it. The approved content is hash-locked.
+- **Compliance:** suppression lists, lawful basis and contact-frequency caps (`compliance:` in config) are
+  enforced by guardrails and again by the executor immediately before sending.
 
 ---
 
-## 5. Current Mock-Only Safeguards & Limitations
+## 5. Integration status & limitations (honest)
 
-To guarantee safety during autonomous operation:
-- **No Real Outbound Email**: Outreach send capability is strictly simulated (`mode: "simulation"`). No SMTP, SendGrid, or Gmail connections exist.
-- **No Real LinkedIn Messaging**: No browser automation or private APIs.
-- **No Real Meeting Booking**: Calendar invites and meetings are recorded as simulated interactions without calling Google Calendar or Calendly.
-- **No Real Prospecting / Scraping**: Prospect research uses deterministic mock responses labeled `mock-v1`.
-- **No Real Purchasing or Financial APIs**: The system cannot perform financial transactions.
-- **No Autonomous Infinite Loops**: Execution loops are bounded and triggerable on demand or by scheduled worker invocations.
+| Integration | Status | Needs |
+| :--- | :--- | :--- |
+| PostgreSQL CRM memory, identity resolution, evidence ledger | **Working, tested** | — |
+| Compliance (suppression, lawful basis, frequency caps, approvals) | **Working, tested** | — |
+| Worker, retries, leases, recovery, Redis health/rate limits | **Working, tested** | — |
+| SMTP email sending (`smtp_email`) | **Working, tested against a local SMTP server** (aiosmtpd); not yet run against a production mail provider | `SMTP_HOST`, `SMTP_FROM_ADDRESS`, `SMTP_USERNAME`, `SMTP_PASSWORD` |
+| IMAP inbox (replies, bounces, calendar accept/decline) | **Parser and pipeline tested with real RFC 822 / DSN / iMIP messages**; the IMAP network fetch itself is not yet run against a live mailbox | `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` |
+| Meeting invites over email (iCalendar `METHOD:REQUEST`, `smtp_meetings`) | **Tested against a local SMTP server**; acceptance arrives via the IMAP poller | same SMTP settings |
+| OpenAI / Anthropic (AI Sales Controller, research, intent, qualification, drafting, reply classification) | **Code paths tested with scripted responses; not yet run with a live key** | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` |
+| Apollo lead search | Built from Apollo's API reference; **mock-tested only** | `APOLLO_API_KEY` |
+| BillionMail sender | Built from BillionMail's source; **mock-tested only** (template must render `{{subject}}`/`{{body}}`) | `BILLIONMAIL_URL`, `BILLIONMAIL_API_KEY`, `BILLIONMAIL_ADDRESSER` |
+| Scout profile source | Tested against a fake checkout only | local Scout checkout path |
+| AutoClip video clips | **Not implemented** (lowest value per effort; needs a separate service and rights controls) | — |
+| LinkedIn / phone | Not automated by design: Oxygen prepares the message/script and creates a **rep task** for a person | — |
+| Google Calendar / Calendly APIs | Not implemented (standards-based email invitations are used instead) | — |
+
+Further limitations: no user authentication on the API or dashboard yet (run it on a private network);
+quiet hours / recipient time zones are not enforced; the scripted demo playbook is a demo aid, not an AI.
+
+Safety that holds in every profile: an AI decision is a proposal, not permission. Every external communication
+needs human approval (hash-locked content, re-checked against suppression/consent/frequency at send time), mock
+providers are never production defaults, and nothing changes code, permissions, guardrails or compliance policy
+automatically.
 
 ---
 
@@ -192,6 +366,8 @@ LOG_LEVEL=INFO
 DATABASE_URL=postgresql://gtm_user:gtm_password@localhost:5432/gtm_db
 REDIS_URL=redis://localhost:6379/0
 SECRET_KEY=dev-secret-key-change-in-prod
+# Optional: which config/gtm.<profile>.yaml overlay to use (defaults to ENVIRONMENT)
+GTM_PROFILE=development
 ```
 
 ### Database Migrations
@@ -202,14 +378,17 @@ alembic current
 ```
 
 ### Running the Application
+Everything at once (recommended): `python start.py` — see *Quick start*. Or run the parts yourself:
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload   # API (+ dashboard if frontend/dist exists)
+python -m app.worker                                        # background worker (autonomy loop, inbox polling)
 ```
 
 Interactive API documentation available at `http://localhost:8000/docs`.
 
 ### Demo
-With the API running, in a second terminal:
+The full demo runs from the dashboard (see *Demo scenarios* above). The older CLI walkthrough still works —
+with the API running, in a second terminal:
 ```bash
 python scripts/demo.py --reset
 ```
@@ -225,7 +404,8 @@ Leave it off to keep existing data.
 
 ## 7. How to Run Tests
 
-Run the complete test suite (with full database isolation and automatic fixture cleanup):
+Run the complete test suite (391 tests). Tests use a separate `gtm_test` database (created and migrated
+automatically) and their own Redis key prefix, so they never touch your development data:
 ```bash
 python -m pytest -v
 ```

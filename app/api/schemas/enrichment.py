@@ -12,21 +12,21 @@ class EnrichCompanyRequest(BaseModel):
     """Optional request body for company enrichment."""
     model_config = ConfigDict(extra="ignore")
 
-    provider: str = "mock_enrichment"
+    provider: Optional[str] = None  # None = ProviderSelector chooses
 
 
 class EnrichPersonRequest(BaseModel):
     """Optional request body for person enrichment."""
     model_config = ConfigDict(extra="ignore")
 
-    provider: str = "mock_enrichment"
+    provider: Optional[str] = None  # None = ProviderSelector chooses
 
 
 class EnrichLeadRequest(BaseModel):
     """Optional request body for lead enrichment."""
     model_config = ConfigDict(extra="ignore")
 
-    provider: str = "mock_enrichment"
+    provider: Optional[str] = None  # None = ProviderSelector chooses
 
 
 class EnrichmentResponse(BaseModel):

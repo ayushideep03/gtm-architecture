@@ -59,11 +59,12 @@ async def enrich_company(
     body: Optional[EnrichCompanyRequest] = None,
     db: AsyncSession = Depends(get_db),
 ) -> EnrichmentResponse:
-    provider_name = body.provider if body else "mock_enrichment"
+    provider_name = body.provider if body else None
 
-    # Validate provider
+    # Validate an explicitly requested provider; None lets the selector choose
     try:
-        enrichment_registry.get_company_provider(provider_name)
+        if provider_name:
+            enrichment_registry.get_company_provider(provider_name)
     except EnrichmentProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -98,11 +99,12 @@ async def enrich_person(
     body: Optional[EnrichPersonRequest] = None,
     db: AsyncSession = Depends(get_db),
 ) -> EnrichmentResponse:
-    provider_name = body.provider if body else "mock_enrichment"
+    provider_name = body.provider if body else None
 
-    # Validate provider
+    # Validate an explicitly requested provider; None lets the selector choose
     try:
-        enrichment_registry.get_person_provider(provider_name)
+        if provider_name:
+            enrichment_registry.get_person_provider(provider_name)
     except EnrichmentProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -137,12 +139,12 @@ async def enrich_lead(
     body: Optional[EnrichLeadRequest] = None,
     db: AsyncSession = Depends(get_db),
 ) -> LeadEnrichmentResponse:
-    provider_name = body.provider if body else "mock_enrichment"
+    provider_name = body.provider if body else None
 
-    # Validate provider
+    # Validate an explicitly requested provider; None lets the selector choose
     available = enrichment_registry.list_providers()
     all_known = set(available.get("company", []) + available.get("person", []))
-    if provider_name not in all_known:
+    if provider_name and provider_name not in all_known:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown enrichment provider {provider_name!r}",
@@ -165,7 +167,7 @@ async def enrich_lead(
 
     return LeadEnrichmentResponse(
         lead_id=lead_id,
-        provider=provider_name,
+        provider=provider_name or "auto",
         company=_to_response(outcomes["company"]) if outcomes.get("company") else None,
         person=_to_response(outcomes["person"]) if outcomes.get("person") else None,
     )

@@ -15,14 +15,46 @@ import pytest
 
 # Force test environment before any app modules are imported
 os.environ.setdefault("ENVIRONMENT", "development")
+# Test profile: config/gtm.test.yaml (mock providers enabled explicitly).
+os.environ.setdefault("GTM_PROFILE", "test")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql://gtm_user:gtm_password@localhost:5432/gtm_db"
+# Tests use their OWN database so running them never wipes development/demo data.
+# Override with TEST_DATABASE_URL; DATABASE_URL from .env is deliberately ignored here.
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql://gtm_user:gtm_password@localhost:5432/gtm_test"
 )
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("OPENAI_API_KEY", "")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
+
+
+def _prepare_test_database() -> None:
+    """Create the test database if needed and migrate it to head (once per session)."""
+    import subprocess
+    import sys
+    from urllib.parse import urlparse
+
+    url = urlparse(os.environ["DATABASE_URL"])
+    dbname = url.path.lstrip("/")
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dbname="postgres", user=url.username, password=url.password,
+                                host=url.hostname, port=url.port or 5432, connect_timeout=3)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+            if cur.fetchone() is None:
+                cur.execute(f'CREATE DATABASE "{dbname}"')
+        conn.close()
+    except Exception:
+        return  # PostgreSQL unavailable: DB tests self-skip
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=root, env=dict(os.environ),
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+_prepare_test_database()
 
 
 @pytest.fixture(scope="session")
@@ -69,6 +101,15 @@ def _cleanup_session():
 
 # Tables in FK-safe deletion order (children before parents).
 _CLEANUP_TABLE_ORDER = [
+    "approvals",
+    "work_items",
+    "agent_decisions",
+    "research_findings",
+    "fact_evidence",
+    "facts",
+    "suppressions",
+    "contact_consents",
+    "source_records",
     "event_processing_states",
     "events",
     "interactions",
@@ -150,6 +191,13 @@ def _db_isolation(request):
         "TestEvalsAPI",
         "TestEndToEndGTM",
         "TestGTMCapabilitiesWithDatabase",
+        "TestInboundEvents",
+        "TestAutonomy",
+        "TestLeadSources",
+        "TestAttribution",
+        "TestDashboard",
+        "TestLearning",
+        "TestSmtp", "TestRoundTrip", "TestBillionMail", "TestReplyGapWaiver", "TestDemoScenarios",
     }
     if cls is None or cls.__name__ not in db_test_classes:
         yield
@@ -165,3 +213,36 @@ def _db_isolation(request):
 
     yield
 
+
+
+# ---------------------------------------------------------------------------
+# Shared runtime state isolation (Redis provider health / rate limits)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_runtime_state():
+    """Provider health and rate limits live in Redis under the test profile's
+    key prefix; clear them so one test's failures can't cool down providers
+    for the next."""
+    try:
+        import redis as sync_redis
+        from app.core.config import get_settings
+        from app.core.gtm_config import get_gtm_config
+        prefix = get_gtm_config().runtime.key_prefix
+        client = sync_redis.Redis.from_url(get_settings().REDIS_URL, socket_connect_timeout=1)
+        keys = list(client.scan_iter(f"{prefix}:*"))
+        if keys:
+            client.delete(*keys)
+        client.close()
+    except Exception:
+        pass  # Redis unavailable: trackers fall back to in-memory state
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _fresh_connection_pool():
+    """Each test runs on its own event loop; asyncpg connections pooled on a previous loop
+    cannot be reused. Drop the pool (without awaiting the old loop) before every test."""
+    from app.core.database import engine
+    engine.sync_engine.dispose(close=False)
+    yield

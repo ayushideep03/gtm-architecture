@@ -1,0 +1,15 @@
+# Demo profile: development config + a SCRIPTED demo playbook in place of a language model.
+# Lets the whole pipeline run without an API key. Everything it produces is labelled
+# vendor "demo" / model "scripted-demo-playbook", and the dashboard shows a banner.
+# Never use this profile in production. Mock send/meeting providers run in dry_run mode.
+include:
+  - gtm.development.yaml
+llm:
+  vendors:
+    demo: {}
+  profiles:
+    planner: {provider: demo, model: scripted-demo-playbook, fallback_profiles: []}
+    researcher: {provider: demo, model: scripted-demo-playbook, fallback_profiles: []}
+    writer: {provider: demo, model: scripted-demo-playbook, fallback_profiles: []}
+autonomy:
+  tick_interval_s: 5

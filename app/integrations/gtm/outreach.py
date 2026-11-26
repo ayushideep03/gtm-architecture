@@ -123,6 +123,10 @@ class MockOutreachSendProvider(ExecutionProvider):
                 body=body,
                 channel_message_id=simulated_message_id,
                 occurred_at=datetime.now(timezone.utc),
+                task_id=context.task_id,
+                channel="email",
+                provider=self.provider_name,
+                details={"mode": "simulation"},
             )
             session.add(interaction)
 
@@ -133,6 +137,7 @@ class MockOutreachSendProvider(ExecutionProvider):
             result={
                 "sent": True,
                 "mode": "simulation",
+                "interaction_recorded": bool(session and context.lead_id),
                 "provider": self.provider_name,
                 "message_id": simulated_message_id,
                 "recipient": recipient_email,

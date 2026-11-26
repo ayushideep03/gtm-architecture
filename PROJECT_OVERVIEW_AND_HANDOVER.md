@@ -168,7 +168,7 @@ Run Alembic migrations to apply all schemas:
 ```bash
 alembic upgrade head
 alembic current
-# Should output: 0007 (head)
+# Should output: 0011 (head)
 ```
 
 ### 3. Running the Server
@@ -180,7 +180,7 @@ Interactive OpenAPI documentation will be accessible at:
 - **ReDoc**: `http://localhost:8000/redoc`
 
 ### 4. Running Tests
-The suite contains 227 tests covering unit, integration, database isolation, API routes, and end-to-end flows:
+The suite contains 391 tests (run against a separate `gtm_test` database) covering unit, integration, database isolation, API routes, and end-to-end flows:
 ```bash
 # Run the complete test suite
 python -m pytest -v
@@ -195,58 +195,40 @@ python -m pytest tests/test_end_to_end_gtm.py -v
 
 ---
 
-## 5. Current Shortcomings & Constraints
+## 5. Current State, Shortcomings & Constraints
 
-While the architectural foundation is complete and production-grade, the following areas are intentionally constrained at this stage:
+**What runs end to end today** (`python start.py`): lead sources (CSV / inbound webhook / Apollo / Scout) →
+identity resolution → enrichment → persistent sales memory (evidence-scored facts, findings, interactions,
+decisions) → AI Sales Controller (OpenAI default, Anthropic fallback; structured proposals with reasoning,
+evidence, confidence, risks) → guardrails + compliance → human approval for every external action → execution
+with provider selection, retries, failover and recovery → SMTP email / calendar invitations → IMAP inbox
+(replies, bounces, accept/decline) → reply classification and opt-out handling → follow-ups / meetings / stop →
+outcome attribution, RevOps dashboard and learning. A background worker runs the loop; a React dashboard
+(Overview, Lead Intelligence, Control Centre, Pipeline, Approval Centre, RevOps) shows it live.
 
-1. **Mocked Side Effects (Safety by Design)**:
-   - Outreach sending (`MockOutreachSendProvider`) and meeting booking (`MockMeetingBookingProvider`) operate strictly in simulation mode. No live emails or calendar events are created.
-   - Prospect research uses deterministic templates rather than live web scraping.
-2. **Deterministic Rules vs. Commercial LLMs**:
-   - The decision engine (`DeterministicDecisionEngine`) and outreach drafter use deterministic templates. They establish reliable baseline contracts before introducing probabilistic LLM outputs.
-3. **Absence of a Continuous Background Worker Daemon**:
-   - The orchestration service exposes step-by-step function calls and API triggers. There is currently no active background daemon (e.g., Celery beat, Temporal, ARQ worker) executing loops automatically every N seconds.
-4. **Single-Tenant & No Route Authentication**:
-   - The API currently does not enforce user authentication (JWT, API keys) or organization-level tenant partitioning.
-5. **Headless / API-Only**:
-   - There is no frontend user interface or dashboard; all interactions occur via REST endpoints or programmatic service calls.
-6. **Autonomous Loop Ends at Qualification**:
-   - Oxygen's decision rules currently cover enrich company → enrich person → qualify lead, then stop (`no_action`).
-   - The research, outreach drafting, outreach send and meeting booking providers are implemented and tested individually, but Oxygen does not yet choose them, so a qualified lead does not progress to outreach automatically.
-7. **Re-ingesting Existing Contacts Creates Duplicate Leads**:
-   - Companies (by domain) and people (by email) are de-duplicated correctly, but every ingestion run creates a new `Lead` for the same person. Running the same import twice doubles the lead count.
+**Not yet proven live (needs credentials):** OpenAI / Anthropic calls, Apollo, BillionMail, a real SMTP/IMAP
+mailbox. Each is implemented and tested against scripted responses, mocks or a local SMTP server, and shows as
+*unavailable* with the missing env var until configured. See README §5 for the per-integration table.
+
+**Constraints:**
+1. No API / dashboard authentication yet — run on a private network.
+2. Quiet hours and recipient time zones are not enforced.
+3. LinkedIn and phone are prepared by Oxygen and executed by a person (rep tasks); no automation by design.
+4. AutoClip video capability, Google Calendar / Calendly APIs are not implemented.
+5. The `demo` profile's scripted playbook is a demo aid, not an AI; it is labelled everywhere it appears.
 
 ---
 
-## 6. Required Next Steps & Improvements
+## 6. Recommended Next Steps
 
-Here is the recommended roadmap to take this architecture to full commercial production:
-
-### Priority 1: Close the Known Functional Gaps
-- **Extend the decision engine** (`app/oxygen/decision.py`): after `qualify_lead` completes, decide `research_prospect` → `draft_outreach` → `send_outreach_simulation` → `book_meeting_simulation`, each gated by guardrails and the existing pending/completed-task checks.
-- **De-duplicate leads on ingestion** (`app/services/lead_ingestion.py`): reuse the person's existing open lead instead of creating a new one.
-
-### Priority 2: Connect Live External Providers (Provider Plug-ins)
-Because the system is designed around the `ExecutionProvider` interface, you can swap mocks for real providers without altering CRM, Oxygen, Guardrails, or Tasks:
-- **Email Sending**: Implement a `SendGridOutreachProvider` or `ResendOutreachProvider` conforming to `ExecutionProvider`.
-- **Enrichment**: Implement an `ApolloLiveEnrichmentProvider` calling the official Apollo Search & Enrichment API.
-- **Meeting Scheduling**: Implement a `CalendlyMeetingProvider` or `GoogleCalendarMeetingProvider` using OAuth2.
-
-### Priority 3: Introduce Real LLM Decision & Drafting Agents
-- Replace or augment `DeterministicDecisionEngine` with an `LLMDecisionEngine` utilizing structured outputs (e.g., OpenAI Function Calling / Pydantic models).
-- Add prompt guardrails (input sanitization, prompt injection defenses, sentiment verification) inside the `app/guardrails/` package.
-
-### Priority 4: Add Distributed Worker Execution (Celery / Temporal / ARQ)
-- Set up a background worker daemon to poll `tasks` in `pending` status or consume events from Redis / PostgreSQL LISTEN-NOTIFY.
-- Configure recurring cron tasks to run `GtmOrchestrationService.execute_cycle()` on new leads automatically.
-
-### Priority 5: Authentication, Authorization & Multi-Tenancy
-- Add FastAPI dependencies for API Key / JWT verification (`OAuth2PasswordBearer`).
-- Introduce an `organizations` table and add `tenant_id` to `companies`, `people`, `leads`, and `events` for strict multi-tenant data isolation.
-
-### Priority 6: Web UI / RevOps Dashboard
-- Build a Next.js / React dashboard connecting to `/api/v1/revops/metrics`, `/api/v1/revops/events`, and `/api/v1/revops/leads/{lead_id}/timeline`.
-- Allow human-in-the-loop review of drafted outreach before approving task execution.
+1. **Go live with credentials, one at a time:** set `OPENAI_API_KEY`, run the four demo scenarios with real AI and
+   review decisions and drafts; then a real mailbox (`SMTP_*`, `IMAP_*`) sending to internal test addresses only;
+   then `APOLLO_API_KEY` with a small search.
+2. **Authentication and roles** for the API and dashboard (who may approve, who may change config).
+3. **Quiet hours / time-zone aware sending** in the compliance layer.
+4. **Evaluation on real data:** use the RevOps dashboard and attribution to compare prompts/angles once there are
+   enough outcomes (the dashboard flags small samples).
+5. **Scale-out:** the Postgres `SKIP LOCKED` queue is modular; move to Celery/Temporal only if volume requires it.
 
 ---
 
@@ -261,5 +243,5 @@ Because the system is designed around the `ExecutionProvider` interface, you can
 - `app/revops/processor.py`: PostgreSQL cursor-based event processor.
 - `app/evals/runner.py`: Deterministic test runner for behavioral invariants.
 - `app/services/gtm_orchestration.py`: End-to-end autonomous GTM cycle runner.
-- `tests/`: 227 automated test cases (222 pass, 5 skipped).
+- `tests/`: 375 automated test cases (370 pass, 5 skipped).
 - `scripts/demo.py`: Live end-to-end demo against the running API (`python scripts/demo.py --reset`).

@@ -30,41 +30,56 @@ class CapabilityRegistry:
         return [self._capabilities[k] for k in sorted(self._capabilities.keys())]
 
 
-def _build_default_registry() -> CapabilityRegistry:
-    registry = CapabilityRegistry()
-    registry.register(
-        CapabilityContract(
-            name="company_enrichment",
-            description="Enriches company firmographic and technographic data using domain.",
-            input_contract={"company_id": "UUID", "domain": "str"},
-            is_available=True,
+class CatalogueCapabilityView:
+    """
+    Oxygen's view of capabilities, backed by the unified capability catalogue
+    and the provider registry. A capability is *available* when it is enabled
+    for the tenant and at least one provider for it is currently eligible
+    (configured, constructed, healthy, within rate limits).
+
+    Nothing is hand-registered here: capabilities come from the catalogue and
+    availability from configuration + runtime provider state.
+    """
+
+    def _catalogue(self):
+        from app.capabilities import get_capability_catalogue
+        return get_capability_catalogue()
+
+    def _selector(self):
+        from app.providers import get_provider_selector
+        return get_provider_selector()
+
+    def register(self, capability: CapabilityContract) -> None:
+        raise TypeError(
+            "Capabilities are defined in app.capabilities (catalogue) and providers in "
+            "GTM config; use a standalone CapabilityRegistry for ad-hoc contracts."
         )
-    )
-    registry.register(
-        CapabilityContract(
-            name="person_enrichment",
-            description="Enriches person contact and professional title/seniority data using email.",
-            input_contract={"person_id": "UUID", "email": "str"},
-            is_available=True,
+
+    def canonical(self, name: Optional[str]) -> Optional[str]:
+        return self._catalogue().canonical(name)
+
+    async def is_available(self, name: str, tenant_id=None) -> bool:
+        from app.providers.selection import SelectionRequest
+        catalogue = self._catalogue()
+        canonical = catalogue.canonical(name)
+        if canonical is None or not catalogue.is_enabled(canonical, tenant_id):
+            return False
+        return await self._selector().has_eligible(SelectionRequest(capability=canonical, tenant_id=tenant_id))
+
+    async def get(self, name: str, tenant_id=None) -> Optional[CapabilityContract]:
+        spec = self._catalogue().get(name, tenant_id)
+        if spec is None:
+            return None
+        return CapabilityContract(
+            name=spec.name,
+            description=spec.description,
+            input_contract=spec.input_schema(),
+            is_available=await self.is_available(spec.name, tenant_id),
         )
-    )
-    registry.register(
-        CapabilityContract(
-            name="lead_enrichment",
-            description="Coordinates company and person enrichment for a given lead.",
-            input_contract={"lead_id": "UUID"},
-            is_available=True,
-        )
-    )
-    registry.register(
-        CapabilityContract(
-            name="lead_qualification",
-            description="Analyzes enriched lead signals to determine ICP qualification and routing.",
-            input_contract={"lead_id": "UUID"},
-            is_available=True,
-        )
-    )
-    return registry
+
+    async def list_capabilities(self, tenant_id=None) -> list[CapabilityContract]:
+        contracts = [await self.get(n, tenant_id) for n in self._catalogue().names()]
+        return [c for c in contracts if c]
 
 
-capability_registry: CapabilityRegistry = _build_default_registry()
+capability_registry = CatalogueCapabilityView()

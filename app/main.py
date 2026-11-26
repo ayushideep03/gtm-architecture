@@ -91,6 +91,14 @@ def create_app() -> FastAPI:
     # Versioned API — /api/v1/leads/ingest, etc.
     app.include_router(api_router)
 
+    # ── Dashboard (built React app) ───────────────────────────────────────────
+    # Served from frontend/dist when it has been built (npm run build, or start.py).
+    from pathlib import Path
+    dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if dist.is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=dist, html=True), name="dashboard")
+
     return app
 
 

@@ -1,0 +1,7 @@
+# Development profile: base config + mock providers for local work and demos.
+include:
+  - providers/mocks.yaml
+runtime:
+  key_prefix: gtm-dev
+webhooks:
+  allow_unsigned: true          # local convenience only; production requires signatures

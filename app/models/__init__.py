@@ -11,18 +11,43 @@ from app.models.base import (  # noqa: F401
     Event,
     Interaction,
     Lead,
+    Organization,
     Person,
+    SourceRecord,
     Task,
     EventProcessingState,
 )
 
+from app.models.memory import (  # noqa: F401,E402
+    AgentDecision,
+    Approval,
+    ContactConsent,
+    Fact,
+    FactEvidence,
+    OutcomeAttribution,
+    ResearchFinding,
+    Suppression,
+    WorkItem,
+)
+
 __all__ = [
+    "AgentDecision",
+    "Approval",
+    "ContactConsent",
+    "Fact",
+    "FactEvidence",
+    "OutcomeAttribution",
+    "ResearchFinding",
+    "Suppression",
+    "WorkItem",
     "Base",
     "Company",
     "Event",
     "Interaction",
     "Lead",
+    "Organization",
     "Person",
+    "SourceRecord",
     "Task",
     "EventProcessingState",
 ]

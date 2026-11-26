@@ -7,6 +7,8 @@ Provides:
 - A health-check probe: check_db_health()
 """
 
+import os
+
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import text
@@ -44,7 +46,7 @@ def create_engine_and_session() -> tuple:
 
     engine = create_async_engine(
         async_url,
-        echo=settings.is_development,
+        echo=os.environ.get("SQL_ECHO", "").lower() in ("1", "true", "yes"),   # opt-in SQL logging
         pool_pre_ping=True,        # verify connections before use
         pool_size=10,
         max_overflow=20,

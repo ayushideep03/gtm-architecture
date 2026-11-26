@@ -1,66 +1,53 @@
 """
-Identity Resolution Service.
+Identity Resolution Service — the single source of matching logic.
 
-Deterministically matches incoming enrichment targets to existing
-Company and Person records in the database.
+Deterministically matches incoming records to existing Company and Person rows
+of the same tenant. Used by ingestion, enrichment and the capability invokers;
+no other module implements its own matching.
 
-Matching strategy (no fuzzy matching):
-    Company:
-        1. Exact match on normalized domain
-        2. No match → caller decides whether to create
+Match keys (exact, normalised; order and selection come from config
+``identity.company_match`` / ``identity.person_match``):
 
-    Person:
-        1. Exact match on normalized email
-        2. No match → caller decides whether to create
+    Company: source_record | domain | website | linkedin_url | name
+    Person:  source_record | email  | linkedin_url | name_and_company
 
-The resolver returns an explicit ResolutionResult describing:
-    - whether a match was found
-    - the matched entity ID (if found)
-    - the match type / reason
-    - a confidence score (1.0 for exact, 0.0 for no match)
+``source_record`` resolves a provider's own record id via the source_records
+table, so a re-import maps to the same entities even if the email or domain
+changed at the source. There is deliberately no fuzzy matching: a wrong merge
+would contact the wrong person.
 
-Design:
-    - Pure read-only: never creates or modifies records.
-    - Async: uses the caller's session.
-    - No LLM, no fuzzy matching, no silent merges.
+The resolver is read-only; callers decide whether to create.
 """
 
+from __future__ import annotations
+
+import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
-import uuid
+from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import Company, Person
-from app.services.normalization import normalize_domain, normalize_email
+from app.core.tenancy import DEFAULT_TENANT_ID
+from app.models.base import Company, Person, SourceRecord
+from app.services.normalization import normalize_domain, normalize_email, normalize_name, normalize_url
 
-
-# ── Match types ───────────────────────────────────────────────────────────────
 
 class MatchType(str, Enum):
     """How the match was determined."""
+    SOURCE_RECORD = "source_record"
     EXACT_DOMAIN = "exact_domain"
     WEBSITE_DOMAIN = "website_domain"
+    LINKEDIN_URL = "linkedin_url"
+    COMPANY_NAME = "company_name"
     EXACT_EMAIL = "exact_email"
+    NAME_AND_COMPANY = "name_and_company"
     NO_MATCH = "no_match"
 
 
-# ── Result types ──────────────────────────────────────────────────────────────
-
 @dataclass
 class CompanyResolutionResult:
-    """
-    Result of attempting to resolve a Company by domain.
-
-    Attributes:
-        found:      True if an existing Company was matched.
-        company_id: UUID of the matched Company (None if not found).
-        match_type: How the match was determined.
-        confidence: 1.0 for exact match, 0.0 for no match.
-        normalized_domain: The normalized domain that was queried.
-    """
     found: bool
     company_id: Optional[uuid.UUID]
     match_type: MatchType
@@ -70,16 +57,6 @@ class CompanyResolutionResult:
 
 @dataclass
 class PersonResolutionResult:
-    """
-    Result of attempting to resolve a Person by email.
-
-    Attributes:
-        found:            True if an existing Person was matched.
-        person_id:        UUID of the matched Person (None if not found).
-        match_type:       How the match was determined.
-        confidence:       1.0 for exact match, 0.0 for no match.
-        normalized_email: The normalized email that was queried.
-    """
     found: bool
     person_id: Optional[uuid.UUID]
     match_type: MatchType
@@ -87,121 +64,146 @@ class PersonResolutionResult:
     normalized_email: Optional[str]
 
 
-# ── Service ───────────────────────────────────────────────────────────────────
+def _configured(kind: str, tenant_id: Optional[uuid.UUID]) -> list[str]:
+    from app.core.gtm_config import get_gtm_config
+    identity = get_gtm_config().for_tenant(tenant_id).identity
+    return list(identity.company_match if kind == "company" else identity.person_match)
+
 
 class IdentityResolver:
-    """
-    Resolve Company and Person identities against the database.
+    """Stateless; all state lives in the database session."""
 
-    Stateless — all state lives in the database session.
-    One instance can be shared across requests.
-    """
+    # ── helpers ──────────────────────────────────────────────────────────────
+    # Oldest first, so lookups are stable even on non-unique keys (LinkedIn, names).
+    @staticmethod
+    async def _first_company(db: AsyncSession, *where) -> Optional[Company]:
+        stmt = select(Company).where(*where).order_by(Company.created_at, Company.id).limit(1)
+        return (await db.execute(stmt)).scalar_one_or_none()
 
+    @staticmethod
+    async def _first_person(db: AsyncSession, *where) -> Optional[Person]:
+        stmt = select(Person).where(*where).order_by(Person.created_at, Person.id).limit(1)
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def source_record(
+        self, db: AsyncSession, source: Optional[str], external_id: Optional[str],
+        tenant_id: Optional[uuid.UUID] = None,
+    ) -> Optional[SourceRecord]:
+        if not source or not external_id:
+            return None
+        stmt = select(SourceRecord).where(
+            SourceRecord.tenant_id == (tenant_id or DEFAULT_TENANT_ID),
+            SourceRecord.source == source,
+            SourceRecord.external_id == str(external_id),
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    # ── companies ────────────────────────────────────────────────────────────
     async def resolve_company(
         self,
         db: AsyncSession,
         domain: Optional[str] = None,
         website: Optional[str] = None,
+        *,
+        linkedin_url: Optional[str] = None,
+        name: Optional[str] = None,
+        source: Optional[str] = None,
+        external_id: Optional[str] = None,
+        tenant_id: Optional[uuid.UUID] = None,
+        strategy: Optional[Sequence[str]] = None,
     ) -> CompanyResolutionResult:
-        """
-        Attempt to resolve a Company by its normalized domain or website.
+        tenant = tenant_id or DEFAULT_TENANT_ID
+        norm_domain = normalize_domain(domain)
+        norm_website = normalize_domain(website) if website else None
+        norm_linkedin = normalize_url(linkedin_url)
+        norm_name = normalize_name(name)
 
-        Matching priority:
-            1. normalized domain
-            2. normalized website domain if available
-            3. otherwise no automatic company match
+        def hit(company: Company, match: MatchType, nd: Optional[str]) -> CompanyResolutionResult:
+            return CompanyResolutionResult(True, company.id, match, 1.0, nd)
 
-        Args:
-            db:      Active async session.
-            domain:  Raw or pre-normalized domain string.
-            website: Optional raw or pre-normalized website URL / domain.
+        for key in strategy or _configured("company", tenant_id):
+            company: Optional[Company] = None
+            if key == "source_record":
+                rec = await self.source_record(db, source, external_id, tenant)
+                if rec and rec.company_id:
+                    company = await db.get(Company, rec.company_id)
+                    if company:
+                        return hit(company, MatchType.SOURCE_RECORD, norm_domain)
+            elif key == "domain" and norm_domain:
+                company = await self._first_company(
+                    db, Company.tenant_id == tenant, Company.domain == norm_domain)
+                if company:
+                    return hit(company, MatchType.EXACT_DOMAIN, norm_domain)
+            elif key == "website" and norm_website and norm_website != norm_domain:
+                company = await self._first_company(
+                    db, Company.tenant_id == tenant, Company.domain == norm_website)
+                if company:
+                    return hit(company, MatchType.WEBSITE_DOMAIN, norm_website)
+            elif key == "linkedin_url" and norm_linkedin:
+                company = await self._first_company(
+                    db, Company.tenant_id == tenant, Company.linkedin_url == norm_linkedin)
+                if company:
+                    return hit(company, MatchType.LINKEDIN_URL, norm_domain)
+            elif key == "name" and norm_name:
+                company = await self._first_company(
+                    db, Company.tenant_id == tenant, func.lower(Company.name) == norm_name.lower())
+                if company:
+                    return hit(company, MatchType.COMPANY_NAME, norm_domain)
 
-        Returns:
-            CompanyResolutionResult with found=True and company_id set
-            if a match exists; found=False otherwise.
-        """
-        # 1. Match on normalized domain
-        normalized_domain = normalize_domain(domain)
-        if normalized_domain:
-            stmt = select(Company).where(Company.domain == normalized_domain)
-            result = await db.execute(stmt)
-            company = result.scalar_one_or_none()
-            if company is not None:
-                return CompanyResolutionResult(
-                    found=True,
-                    company_id=company.id,
-                    match_type=MatchType.EXACT_DOMAIN,
-                    confidence=1.0,
-                    normalized_domain=normalized_domain,
-                )
+        return CompanyResolutionResult(False, None, MatchType.NO_MATCH, 0.0, norm_domain or norm_website)
 
-        # 2. Match on normalized website domain if available
-        normalized_website = normalize_domain(website) if website else None
-        if normalized_website and normalized_website != normalized_domain:
-            stmt = select(Company).where(Company.domain == normalized_website)
-            result = await db.execute(stmt)
-            company = result.scalar_one_or_none()
-            if company is not None:
-                return CompanyResolutionResult(
-                    found=True,
-                    company_id=company.id,
-                    match_type=MatchType.WEBSITE_DOMAIN,
-                    confidence=1.0,
-                    normalized_domain=normalized_website,
-                )
-
-        return CompanyResolutionResult(
-            found=False,
-            company_id=None,
-            match_type=MatchType.NO_MATCH,
-            confidence=0.0,
-            normalized_domain=normalized_domain or normalized_website,
-        )
-
+    # ── people ───────────────────────────────────────────────────────────────
     async def resolve_person(
         self,
         db: AsyncSession,
         email: Optional[str],
+        *,
+        linkedin_url: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
+        source: Optional[str] = None,
+        external_id: Optional[str] = None,
+        tenant_id: Optional[uuid.UUID] = None,
+        strategy: Optional[Sequence[str]] = None,
     ) -> PersonResolutionResult:
-        """
-        Attempt to resolve a Person by their normalized email.
+        tenant = tenant_id or DEFAULT_TENANT_ID
+        norm_email = normalize_email(email)
+        norm_linkedin = normalize_url(linkedin_url)
+        first, last = normalize_name(first_name), normalize_name(last_name)
 
-        Args:
-            db:    Active async session.
-            email: Raw or pre-normalized email address.
+        def hit(person: Person, match: MatchType) -> PersonResolutionResult:
+            return PersonResolutionResult(True, person.id, match, 1.0, norm_email)
 
-        Returns:
-            PersonResolutionResult with found=True and person_id set
-            if a match exists; found=False otherwise.
-        """
-        normalized = normalize_email(email)
+        for key in strategy or _configured("person", tenant_id):
+            person: Optional[Person] = None
+            if key == "source_record":
+                rec = await self.source_record(db, source, external_id, tenant)
+                if rec and rec.person_id:
+                    person = await db.get(Person, rec.person_id)
+                    if person:
+                        return hit(person, MatchType.SOURCE_RECORD)
+            elif key == "email" and norm_email:
+                person = await self._first_person(
+                    db, Person.tenant_id == tenant, Person.email == norm_email)
+                if person:
+                    return hit(person, MatchType.EXACT_EMAIL)
+            elif key == "linkedin_url" and norm_linkedin:
+                person = await self._first_person(
+                    db, Person.tenant_id == tenant, Person.linkedin_url == norm_linkedin)
+                if person:
+                    return hit(person, MatchType.LINKEDIN_URL)
+            elif key == "name_and_company" and first and last and company_id:
+                # Only when both names and the company are known; an email that
+                # conflicts with the stored one is not this person.
+                person = await self._first_person(
+                    db,
+                    Person.tenant_id == tenant,
+                    Person.company_id == company_id,
+                    func.lower(Person.first_name) == first.lower(),
+                    func.lower(Person.last_name) == last.lower(),
+                )
+                if person and (not norm_email or not person.email or person.email == norm_email):
+                    return hit(person, MatchType.NAME_AND_COMPANY)
 
-        if not normalized:
-            return PersonResolutionResult(
-                found=False,
-                person_id=None,
-                match_type=MatchType.NO_MATCH,
-                confidence=0.0,
-                normalized_email=None,
-            )
-
-        stmt = select(Person).where(Person.email == normalized)
-        result = await db.execute(stmt)
-        person = result.scalar_one_or_none()
-
-        if person is not None:
-            return PersonResolutionResult(
-                found=True,
-                person_id=person.id,
-                match_type=MatchType.EXACT_EMAIL,
-                confidence=1.0,
-                normalized_email=normalized,
-            )
-
-        return PersonResolutionResult(
-            found=False,
-            person_id=None,
-            match_type=MatchType.NO_MATCH,
-            confidence=0.0,
-            normalized_email=normalized,
-        )
+        return PersonResolutionResult(False, None, MatchType.NO_MATCH, 0.0, norm_email)

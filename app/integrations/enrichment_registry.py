@@ -20,10 +20,6 @@ from app.integrations.enrichment_provider import (
     EnrichmentProviderError,
     PersonEnrichmentProvider,
 )
-from app.integrations.mock_enrichment import (
-    MockCompanyEnrichmentProvider,
-    MockPersonEnrichmentProvider,
-)
 
 
 class EnrichmentRegistry:
@@ -88,18 +84,47 @@ class EnrichmentRegistry:
         }
 
 
-def _build_default_enrichment_registry() -> EnrichmentRegistry:
-    """Build and return the default enrichment registry."""
-    registry = EnrichmentRegistry()
-    mock = MockCompanyEnrichmentProvider()
-    mock_person = MockPersonEnrichmentProvider()
-    registry.register_company(mock)
-    registry.register_person(mock_person)
-    # Future real providers registered here:
-    # registry.register_company(ClearbitCompanyProvider())
-    # registry.register_person(ClearbitPersonProvider())
-    return registry
+class UnifiedEnrichmentRegistry:
+    """
+    Enrichment view over the unified provider registry (capabilities
+    ``enrich_company`` / ``enrich_person``). Same lookup interface as
+    EnrichmentRegistry; providers come from configuration.
+    """
+
+    def _unified(self):
+        from app.providers import get_provider_registry
+        return get_provider_registry()
+
+    def _get(self, capability: str, name: str):
+        record = self._unified().record(name)
+        if record is None or capability not in record.capabilities:
+            available = sorted(r.name for r in self._unified().candidates(capability) if r.available)
+            raise EnrichmentProviderError(
+                name, f"Unknown {capability} provider {name!r}. Available: {available}"
+            )
+        if not record.available:
+            raise EnrichmentProviderError(name, f"Provider unavailable: {record.unavailable_reason}")
+        return record.instance
+
+    def register_company(self, provider: CompanyEnrichmentProvider) -> None:
+        self._unified().register(provider, capabilities=["enrich_company"])
+
+    def register_person(self, provider: PersonEnrichmentProvider) -> None:
+        self._unified().register(provider, capabilities=["enrich_person"])
+
+    def get_company_provider(self, name: str) -> CompanyEnrichmentProvider:
+        return self._get("enrich_company", name)
+
+    def get_person_provider(self, name: str) -> PersonEnrichmentProvider:
+        return self._get("enrich_person", name)
+
+    def list_providers(self) -> dict[str, list[str]]:
+        reg = self._unified()
+        return {
+            "company": sorted(r.name for r in reg.candidates("enrich_company") if r.available),
+            "person": sorted(r.name for r in reg.candidates("enrich_person") if r.available),
+        }
 
 
-# Module-level singleton
-enrichment_registry: EnrichmentRegistry = _build_default_enrichment_registry()
+# Singleton used by EnrichmentService and the enrichment API.
+enrichment_registry = UnifiedEnrichmentRegistry()

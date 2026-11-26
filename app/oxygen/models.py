@@ -38,6 +38,30 @@ class Decision:
     parameters: dict[str, Any] = field(default_factory=dict)
     source_event_ids: list[uuid.UUID] = field(default_factory=list)
 
+    # ── Sales Controller proposal fields (LLM engine; rules engine leaves defaults) ──
+    engine: str = "rules"                       # llm | rules | rules_fallback
+    model: Optional[str] = None
+    prompt_version: Optional[str] = None
+    channel: Optional[str] = None
+    situation_summary: Optional[str] = None
+    missing_information: list[str] = field(default_factory=list)
+    interest_signals: list[str] = field(default_factory=list)
+    worth_pursuing: Optional[bool] = None
+    reasoning: Optional[str] = None
+    evidence_refs: list[str] = field(default_factory=list)
+    expected_outcome: Optional[str] = None
+    uncertainty: Optional[str] = None
+    risks: list[str] = field(default_factory=list)
+    alternatives: list[dict[str, Any]] = field(default_factory=list)
+    model_requested_approval: Optional[bool] = None
+    wait_hours: Optional[float] = None
+    fallback_reason: Optional[str] = None       # why the rules engine was used instead of the LLM
+    llm_meta: dict[str, Any] = field(default_factory=dict)   # vendor, latency, usage, attempts
+
+
+# Decisions that never create a task.
+NON_ACTIONS = frozenset({"wait", "no_action", "stop", "escalate"})
+
 
 @dataclass
 class ActionRequest:
@@ -59,8 +83,11 @@ class DecisionOutcome:
     task_id: Optional[uuid.UUID] = None
     task_created: bool = False
     event_id: Optional[uuid.UUID] = None
-    status: str = "success"  # "success", "waiting", "no_action", "error"
+    status: str = "success"  # "success", "waiting", "no_action", "awaiting_approval", "blocked", "error"
     error: Optional[str] = None
+    decision_record_id: Optional[uuid.UUID] = None   # agent_decisions row
+    approval_id: Optional[uuid.UUID] = None          # set when the action awaits human approval
+    requires_approval: bool = False
 
 
 @dataclass
@@ -76,6 +103,7 @@ class OxygenContext:
     events: list[Event] = field(default_factory=list)
     tasks: list[Task] = field(default_factory=list)
     interactions: list[Interaction] = field(default_factory=list)
+    memory: Optional[dict[str, Any]] = None     # full prospect memory (app.memory.context)
     is_company_enriched: bool = False
     is_person_enriched: bool = False
 
@@ -93,6 +121,10 @@ class OxygenContext:
 
     def has_pending_task(self, task_type: str) -> bool:
         return any(t.task_type == task_type for t in self.pending_tasks)
+
+    def has_attempted_task(self, task_type: str) -> bool:
+        """Completed, or failed terminally (e.g. the vendor has no data) — don't keep retrying it."""
+        return any(t.task_type == task_type and t.status in ("done", "completed", "failed") for t in self.tasks)
 
     def has_completed_task(self, task_type: str) -> bool:
         # The executor marks finished tasks "completed"; older rows may use "done".

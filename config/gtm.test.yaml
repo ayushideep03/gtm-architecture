@@ -1,0 +1,16 @@
+# Test profile: mock providers, fast failure cooldowns.
+include:
+  - providers/mocks.yaml
+selection:
+  failure_cooldown_s: 1
+execution:
+  retry:
+    backoff_base_s: 0
+    backoff_max_s: 0
+    jitter: 0
+runtime:
+  key_prefix: gtm-test
+oxygen:
+  decision_engine: rules      # deterministic tests; LLM engine is tested with scripted clients
+webhooks:
+  allow_unsigned: true          # local convenience only; production requires signatures

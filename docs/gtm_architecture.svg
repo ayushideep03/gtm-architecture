@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="1960" viewBox="0 0 760 980" font-family="-apple-system, Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5"/></marker><marker id="b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#534AB7" stroke-width="1.5"/></marker></defs>
+<rect width="760" height="980" fill="#ffffff"/>
+<text x="380.0" y="34" text-anchor="middle" font-size="18" font-weight="600" fill="#2C2C2A">Oxygen — Autonomous AI Sales OS</text>
+<text x="380.0" y="54" text-anchor="middle" font-size="11" fill="#5F5E5A">AI proposes · deterministic controls decide · humans approve every external action</text>
+<rect x="90.0" y="76" width="150" height="46" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+<text x="165.0" y="96.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2C2C2A">Lead sources</text>
+<text x="165.0" y="111.0" text-anchor="middle" font-size="10" fill="#5F5E5A">Apollo · Scout · CSV · inbound</text>
+<rect x="260.0" y="76" width="150" height="46" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+<text x="335.0" y="96.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2C2C2A">Inbox (IMAP)</text>
+<text x="335.0" y="111.0" text-anchor="middle" font-size="10" fill="#5F5E5A">replies · bounces · RSVPs</text>
+<path d="M165.0 122L230 150" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<path d="M335.0 122L270 150" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="150" width="300" height="46" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="250.0" y="170.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#085041">Ingestion &amp; identity resolution</text>
+<text x="250.0" y="185.0" text-anchor="middle" font-size="10" fill="#0F6E56">dedup · tenant-scoped · reply opt-out rules</text>
+<path d="M250 196L250 222" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="222" width="300" height="52" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+<text x="250.0" y="245.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2C2C2A">Sales memory (PostgreSQL)</text>
+<text x="250.0" y="260.0" text-anchor="middle" font-size="10" fill="#5F5E5A">facts + evidence scores · findings · interactions · decisions</text>
+<path d="M250 274L250 300" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="300" width="300" height="52" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+<text x="250.0" y="323.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3C3489">Oxygen — AI Sales Controller</text>
+<text x="250.0" y="338.0" text-anchor="middle" font-size="10" fill="#534AB7">LLM planner (OpenAI → Anthropic) · rules fallback</text>
+<path d="M250 352L250 378" stroke="#534AB7" stroke-width="1.2" fill="none" marker-end="url(#b)"/>
+<text x="256.0" y="365.0" font-size="9.5" fill="#534AB7">proposal, not permission</text>
+<rect x="100.0" y="378" width="300" height="52" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="250.0" y="401.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#085041">Guardrails &amp; compliance</text>
+<text x="250.0" y="416.0" text-anchor="middle" font-size="10" fill="#0F6E56">suppression · lawful basis · caps · spend · fail-closed</text>
+<path d="M250 430L250 456" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="456" width="300" height="46" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="250.0" y="476.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#085041">Human approval</text>
+<text x="250.0" y="491.0" text-anchor="middle" font-size="10" fill="#0F6E56">edit / approve / reject · hash-locked content</text>
+<path d="M250 502L250 528" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="528" width="300" height="46" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+<text x="250.0" y="548.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2C2C2A">Task queue &amp; worker</text>
+<text x="250.0" y="563.0" text-anchor="middle" font-size="10" fill="#5F5E5A">Postgres SKIP LOCKED · retries · leases · recovery</text>
+<path d="M250 574L250 600" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="600" width="300" height="46" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="250.0" y="620.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#085041">Provider selector</text>
+<text x="250.0" y="635.0" text-anchor="middle" font-size="10" fill="#0F6E56">availability · health · rate limits · cost · outcomes</text>
+<path d="M250 646L250 672" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="60.0" y="672" width="185" height="52" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+<text x="152.5" y="695.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3C3489">AI capabilities</text>
+<text x="152.5" y="710.0" text-anchor="middle" font-size="10" fill="#534AB7">research · intent · qualify · draft</text>
+<rect x="255.0" y="672" width="185" height="52" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+<text x="347.5" y="695.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2C2C2A">Execution providers</text>
+<text x="347.5" y="710.0" text-anchor="middle" font-size="10" fill="#5F5E5A">SMTP email · invites · CRM · rep tasks</text>
+<path d="M250 724L250 760" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="760" width="300" height="46" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+<text x="250.0" y="780.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2C2C2A">Event log</text>
+<text x="250.0" y="795.0" text-anchor="middle" font-size="10" fill="#5F5E5A">append-only · reactions wake Oxygen</text>
+<path d="M250 806L250 832" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<rect x="100.0" y="832" width="300" height="52" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+<text x="250.0" y="855.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3C3489">Outcomes &amp; learning</text>
+<text x="250.0" y="870.0" text-anchor="middle" font-size="10" fill="#534AB7">attribution · RevOps · insights · provider ranking</text>
+<path d="M100.0 858L40.0 858L40.0 248L100.0 248" stroke="#534AB7" stroke-width="1.2" fill="none" marker-end="url(#b)" stroke-dasharray="4 3"/>
+<text x="36.0" y="560" font-size="10" fill="#534AB7" transform="rotate(-90 36.0 560)" text-anchor="middle">feedback into memory &amp; planning</text>
+<rect x="560" y="300" width="170" height="330" rx="8" fill="#E6EFFB" stroke="#2A78D6" stroke-width="1"/>
+<text x="645.0" y="469.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B4F8F"></text>
+<text x="645" y="326" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B4F8F">Dashboard (React)</text>
+<text x="645" y="356" text-anchor="middle" font-size="11" fill="#1B4F8F">Overview</text>
+<text x="645" y="392" text-anchor="middle" font-size="11" fill="#1B4F8F">Lead Intelligence</text>
+<text x="645" y="428" text-anchor="middle" font-size="11" fill="#1B4F8F">Control Centre (live)</text>
+<text x="645" y="464" text-anchor="middle" font-size="11" fill="#1B4F8F">Pipeline</text>
+<text x="645" y="500" text-anchor="middle" font-size="11" fill="#1B4F8F">Approval Centre</text>
+<text x="645" y="536" text-anchor="middle" font-size="11" fill="#1B4F8F">RevOps</text>
+<text x="645" y="572" text-anchor="middle" font-size="11" fill="#1B4F8F">pause · resume · tick</text>
+<path d="M560 330L404.0 248" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)" stroke-dasharray="4 3"/>
+<path d="M560 326L404.0 326" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)" stroke-dasharray="4 3"/>
+<path d="M560 479L404.0 479" stroke="#73726c" stroke-width="1.2" fill="none" marker-end="url(#a)" stroke-dasharray="4 3"/>
+<rect x="70" y="930" width="14" height="14" rx="3" fill="#EEEDFE" stroke="#534AB7"/><text x="90" y="941" font-size="11" fill="#444441">AI-driven</text>
+<rect x="235" y="930" width="14" height="14" rx="3" fill="#E1F5EE" stroke="#0F6E56"/><text x="255" y="941" font-size="11" fill="#444441">Deterministic control</text>
+<rect x="400" y="930" width="14" height="14" rx="3" fill="#F1EFE8" stroke="#5F5E5A"/><text x="420" y="941" font-size="11" fill="#444441">Infrastructure</text>
+<rect x="565" y="930" width="14" height="14" rx="3" fill="#E6EFFB" stroke="#2A78D6"/><text x="585" y="941" font-size="11" fill="#444441">User interface</text>
+</svg>

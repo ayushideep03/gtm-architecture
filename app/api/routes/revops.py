@@ -96,3 +96,42 @@ async def get_lead_timeline(
             detail=f"Lead {lead_id} not found",
         )
     return timeline
+
+
+# ── RevOps dashboard, outcomes & learning (Phase F) ──────────────────────────
+
+@router.get("/dashboard", summary="Pipeline, conversion, effectiveness, providers, costs, recommendations")
+async def get_dashboard(days: int = Query(90, ge=1, le=730), session: AsyncSession = Depends(get_db)) -> dict:
+    from app.revops.dashboard import revops_dashboard
+    return await revops_dashboard(session, days)
+
+
+@router.post("/attribute", summary="Attribute outcomes to outbound touches now")
+async def run_attribution(session: AsyncSession = Depends(get_db)) -> dict:
+    from app.revops.outcomes import attribute_outcomes
+    written = await attribute_outcomes(session)
+    await session.commit()
+    return {"attributions_written": written}
+
+
+@router.get("/outcomes", summary="Touch-level outcome attributions")
+async def list_outcomes(limit: int = Query(100, ge=1, le=1000), session: AsyncSession = Depends(get_db)) -> list[dict]:
+    from sqlalchemy import select as _select
+    from app.models.memory import OutcomeAttribution
+    rows = (await session.execute(_select(OutcomeAttribution).order_by(OutcomeAttribution.sent_at.desc())
+                                  .limit(limit))).scalars().all()
+    return [{"touch_id": str(r.touch_id), "lead_id": str(r.lead_id), "channel": r.channel, "angle": r.angle,
+             "engine": r.engine, "provider": r.provider, "draft_provider": r.draft_provider,
+             "personalisation_points": r.personalisation_points, "research_before_touch": r.research_before_touch,
+             "segment": r.segment, "sent_at": r.sent_at, "outcome": r.outcome, "outcome_at": r.outcome_at,
+             "outcome_detail": r.outcome_detail, "final": r.final} for r in rows]
+
+
+@router.get("/insights/leads/{lead_id}", summary="What Oxygen has learned that applies to this prospect")
+async def lead_insights(lead_id: uuid.UUID, session: AsyncSession = Depends(get_db)) -> dict:
+    from app.models.base import Lead
+    from app.revops.insights import planner_insights
+    lead = await session.get(Lead, lead_id)
+    if lead is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Lead {lead_id} not found")
+    return await planner_insights(session, lead)

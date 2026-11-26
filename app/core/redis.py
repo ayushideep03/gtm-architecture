@@ -92,3 +92,28 @@ async def check_redis_health() -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.error("Unexpected Redis error: %s", exc)
         return {"status": "error", "detail": str(exc)}
+
+
+# ── Per-event-loop clients (workers, runtime state) ──────────────────────────
+#
+# redis.asyncio connections are bound to the event loop that created them.
+# Background workers and tests may run several loops in one process, so shared
+# runtime state (provider health, rate limits) uses one client per loop.
+
+import asyncio  # noqa: E402
+import weakref  # noqa: E402
+
+_loop_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Redis]" = weakref.WeakKeyDictionary()
+
+
+def get_loop_redis() -> Redis:
+    """Return a Redis client bound to the currently running event loop."""
+    loop = asyncio.get_running_loop()
+    client = _loop_clients.get(loop)
+    if client is None:
+        client = aioredis.from_url(
+            get_settings().REDIS_URL, encoding="utf-8", decode_responses=True,
+            max_connections=20, socket_timeout=2, socket_connect_timeout=2,
+        )
+        _loop_clients[loop] = client
+    return client

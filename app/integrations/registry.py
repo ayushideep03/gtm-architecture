@@ -6,7 +6,7 @@ Maps provider name strings → LeadSourceProvider instances.
 Rules:
 - The ingestion service and API routes call registry.get(name).
 - They never import concrete provider classes directly.
-- Adding a new provider: register it here only. No other file changes needed.
+- Adding a new provider: add it to the GTM config (config/gtm*.yaml). No code changes.
 
 Usage::
 
@@ -16,8 +16,6 @@ Usage::
 """
 
 from app.integrations.lead_source import LeadSourceProvider, ProviderError
-from app.integrations.mock_apollo import MockApolloProvider
-from app.integrations.mock_scout import MockScoutProvider
 
 
 class ProviderRegistry:
@@ -57,17 +55,37 @@ class ProviderRegistry:
         return sorted(self._providers.keys())
 
 
-def _build_default_registry() -> ProviderRegistry:
-    """Build and return the default registry with all built-in providers."""
-    registry = ProviderRegistry()
-    registry.register(MockApolloProvider())
-    registry.register(MockScoutProvider())
-    # Future providers registered here:
-    # registry.register(ApolloProvider())
-    # registry.register(ScoutProvider())
-    # registry.register(WebSearchProvider())
-    return registry
+class UnifiedLeadSourceRegistry:
+    """
+    Lead-source view over the unified provider registry (capability ``find_leads``).
+
+    Same interface as ProviderRegistry, but providers come from configuration
+    instead of being hardcoded here. Mock sources are only present when a
+    development/test profile enables them.
+    """
+
+    CAPABILITY = "find_leads"
+
+    def _unified(self):
+        from app.providers import get_provider_registry
+        return get_provider_registry()
+
+    def register(self, provider: LeadSourceProvider) -> None:
+        self._unified().register(provider, capabilities=[self.CAPABILITY])
+
+    def get(self, name: str) -> LeadSourceProvider:
+        record = self._unified().record(name)
+        if record is None or self.CAPABILITY not in record.capabilities:
+            raise ProviderError(
+                name, f"Unknown provider {name!r}. Available providers: {self.list_providers()}"
+            )
+        if not record.available:
+            raise ProviderError(name, f"Provider {name!r} is unavailable: {record.unavailable_reason}")
+        return record.instance
+
+    def list_providers(self) -> list[str]:
+        return sorted(r.name for r in self._unified().candidates(self.CAPABILITY) if r.available)
 
 
-# Module-level singleton — import and use directly
-provider_registry: ProviderRegistry = _build_default_registry()
+# Singleton used by the ingestion route and services.
+provider_registry = UnifiedLeadSourceRegistry()

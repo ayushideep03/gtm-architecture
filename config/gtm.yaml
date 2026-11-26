@@ -1,0 +1,294 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GTM runtime configuration — BASE (production-safe)
+#
+# Overlays: config/gtm.<profile>.yaml (profile = $GTM_PROFILE or ENVIRONMENT),
+#           then $GTM_CONFIG_FILE if set. See app/core/gtm_config.py.
+#
+# No mock providers are enabled here. A deployment adds its real providers in an
+# overlay. Secrets are referenced by environment-variable NAME only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+tenancy:
+  default_tenant_id: "00000000-0000-0000-0000-000000000001"
+  default_tenant_name: "Default organisation"
+
+llm:
+  default_profile: planner
+  vendors:
+    openai:
+      api_key_env: OPENAI_API_KEY
+    anthropic:
+      api_key_env: ANTHROPIC_API_KEY
+  profiles:
+    # Roles map to vendor + model. Change models here; no code changes needed.
+    planner:
+      provider: openai
+      model: gpt-4.1
+      temperature: 0.2
+      max_output_tokens: 4000
+      timeout_s: 60
+      fallback_profiles: [planner_backup]
+    planner_backup:
+      provider: anthropic
+      model: claude-opus-5-5
+      effort: medium               # Opus 5.5 default is medium; sampling params are not sent
+      refusal_fallbacks: default   # server-side refusal fallback (set null to disable)
+      max_output_tokens: 4000
+      timeout_s: 90
+    researcher:
+      provider: openai
+      model: gpt-4.1
+      temperature: 0.1
+      max_output_tokens: 4000
+      timeout_s: 90
+      fallback_profiles: [planner_backup]
+    writer:
+      provider: openai
+      model: gpt-4.1
+      temperature: 0.6
+      max_output_tokens: 2000
+      timeout_s: 60
+      fallback_profiles: [planner_backup]
+
+# Built-in providers that are part of the platform itself (not vendors).
+# The llm_* providers load only when their LLM profile has a usable API key;
+# otherwise they are registered as unavailable (with the reason) and never selected.
+providers:
+  - name: internal_crm
+    factory: app.integrations.gtm.crm:CRMActionProvider
+    capabilities: [crm_update]
+    priority: 80
+  - name: internal_rep_tasks
+    factory: app.capabilities.llm_providers:RepTaskProvider
+    capabilities: [create_rep_task]
+    priority: 80
+  # ── Lead sources ──
+  - name: apollo                       # built from Apollo's API reference; not yet verified live
+    factory: app.integrations.apollo:ApolloProvider
+    capabilities: [find_leads]
+    priority: 70
+    credentials: {api_key: APOLLO_API_KEY}
+    settings: {enrich: true, max_enrich_per_search: 10}   # enrichment uses Apollo credits
+    rate_limit: {requests: 50, per_seconds: 60}
+    resilience: {timeout_s: 30}
+  - name: scout                        # narrow profile adapter (GitHub/YouTube); needs a local Scout checkout
+    factory: app.integrations.scout:ScoutProfileProvider
+    capabilities: [find_leads]
+    priority: 30
+    settings: {scout_path: null, platforms: [github, youtube]}
+    resilience: {timeout_s: 120}
+  - name: llm_research
+    factory: app.capabilities.llm_providers:LLMResearchProvider
+    capabilities: [research_prospect]
+    priority: 80
+    settings: {llm_profile: researcher}
+  - name: llm_intent
+    factory: app.capabilities.llm_providers:LLMIntentProvider
+    capabilities: [analyze_intent]
+    priority: 80
+    settings: {llm_profile: researcher}
+  - name: llm_qualification
+    factory: app.capabilities.llm_providers:LLMQualificationProvider
+    capabilities: [qualify_lead]
+    priority: 80
+    settings: {llm_profile: researcher}
+  - name: llm_drafting
+    factory: app.capabilities.llm_providers:LLMDraftingProvider
+    capabilities: [draft_outreach]
+    priority: 80
+    settings: {llm_profile: writer}
+  # ── Email + meetings over standard protocols (any mail server). Unavailable until the env vars exist.
+  - name: smtp_email
+    factory: app.integrations.email_smtp:SmtpEmailProvider
+    capabilities: [send_email]
+    priority: 80
+    credentials: {host: SMTP_HOST, from_address: SMTP_FROM_ADDRESS, username: SMTP_USERNAME, password: SMTP_PASSWORD}
+    settings: {port: 587, security: starttls, from_name: "Alex Morgan"}
+    rate_limit: {requests: 30, per_seconds: 60}
+    resilience: {timeout_s: 30}
+  - name: smtp_meetings                # sends iCalendar invitations; acceptance arrives via the inbox
+    factory: app.integrations.email_smtp:SmtpMeetingProvider
+    capabilities: [book_meeting]
+    priority: 70
+    credentials: {host: SMTP_HOST, from_address: SMTP_FROM_ADDRESS, username: SMTP_USERNAME, password: SMTP_PASSWORD}
+    settings:
+      port: 587
+      security: starttls
+      from_name: "Alex Morgan"
+      availability: {timezone: "Europe/London", weekdays: [0, 1, 2, 3, 4], hours: [10, 14, 16], min_notice_hours: 24}
+    resilience: {timeout_s: 30}
+  - name: imap_inbox                   # polled by the worker: replies, bounces, calendar replies
+    factory: app.integrations.email_imap:ImapInboxProvider
+    capabilities: [receive_email]
+    credentials: {host: IMAP_HOST, username: IMAP_USERNAME, password: IMAP_PASSWORD}
+    settings: {port: 993, mailbox: INBOX, max_messages: 50}
+  - name: billionmail                  # optional self-hosted sender; built from source, not verified live
+    factory: app.integrations.billionmail:BillionMailProvider
+    capabilities: [send_email]
+    priority: 60
+    credentials: {base_url: BILLIONMAIL_URL, api_key: BILLIONMAIL_API_KEY, addresser: BILLIONMAIL_ADDRESSER}
+    resilience: {timeout_s: 30}
+
+selection:
+  weights: {priority: 1.0, reliability: 2.0, latency: 0.5, cost: 0.5, outcome_quality: 1.5}
+  reliability_window_days: 14
+  consecutive_failure_threshold: 3
+  failure_cooldown_s: 60
+  failover: true
+
+# Human approval is required for these side-effect classes (Phase 4 enforces).
+approval:
+  required_for_side_effects: [external_communication]
+  ttl_hours: 72
+
+oxygen:
+  decision_engine: llm        # AI Sales Controller; falls back to rules when no LLM is available
+  fallback_engine: rules
+  llm_profile: planner
+  max_actions_per_cycle: 1
+  min_confidence: 0.35        # lower-confidence proposals are escalated to a human
+  default_wait_hours: 72
+  campaign:
+    name: default
+    offer: >-
+      An AI sales operating system that researches prospects, decides the next best
+      action and prepares personalised outreach for human approval.
+    ideal_customer_profile: >-
+      B2B software companies with 50-1000 employees and an outbound sales team
+      (VP Sales, Head of RevOps, CRO, founders at smaller companies).
+    goal: Book a qualified discovery meeting
+    tone: Concise, specific, respectful; no hype, no false urgency
+    qualification_min_score: 60
+    constraints:
+      - Never invent facts about the prospect or their company
+      - Reference only evidence present in the prospect memory
+      - Stop outreach immediately if the prospect asks not to be contacted
+
+  outreach:                    # deterministic content policy for every AI draft
+    channels: [email, linkedin, phone]
+    sender_name: "Alex Morgan"
+    sender_title: "Account Executive"
+    sender_company: "Oxygen"
+    max_words: {email: 160, linkedin: 80, phone: 250}
+    max_subject_chars: 90
+    banned_phrases: [guarantee, risk-free, act now, limited time, "100%", "as per my last email", "just checking in"]
+    email_footer: "If this isn't relevant, just reply \"no thanks\" and I won't follow up."
+    require_evidence_for_personalisation: true
+  research:                    # research reads ONLY the prospect company's own website
+    paths: ["/", "/about", "/company", "/careers", "/blog", "/news"]
+    max_pages: 5
+    max_chars_per_page: 12000
+    timeout_s: 10
+    respect_robots_txt: true
+
+# Per-capability policy overrides, e.g.:
+# capabilities:
+#   send_email:
+#     repeatability: {mode: repeatable, max_per_lead: 4, cooldown_s: 172800}
+capabilities: {}
+
+feature_flags: {}
+
+# Per-tenant overrides keyed by organisation id, e.g.:
+# tenants:
+#   "<org-uuid>":
+#     providers: {some_vendor: {enabled: false}}
+#     capabilities: {book_meeting: {enabled: false}}
+tenants: {}
+
+# ── Phase 2: reliability, recovery, identity ─────────────────────────────────
+execution:
+  lease_s: 300                 # in_progress tasks older than this are stale
+  retry:                       # task-level retry after transient failures
+    max_attempts: 4
+    backoff_base_s: 30
+    backoff_max_s: 3600
+    jitter: 0.2
+  recovery:
+    # Stale tasks with these side effects resume automatically; others go to human review.
+    auto_resume_side_effects: [read_only, internal_write]
+    ambiguous_error_codes: [TIMEOUT, PROVIDER_EXCEPTION]
+
+runtime:
+  backend: redis               # shared provider health + rate limits across workers
+  key_prefix: gtm
+  redis_fallback_to_memory: true
+
+identity:
+  company_match: [source_record, domain, website, linkedin_url]
+  person_match: [source_record, email, linkedin_url, name_and_company]
+  lead:
+    terminal_statuses: [closed_won, closed_lost, disqualified]   # one OPEN lead per person (DB-enforced)
+    on_closed_lead: attach     # a closed lead resurfacing does not auto-restart outreach
+
+# ── Persistent sales memory: evidence ledger ─────────────────────────────────
+memory:
+  # Evidence kinds and weights (noisy-OR scoring). 'primary' = first-hand source.
+  evidence_kinds:
+    human_entered:     {weight: 1.0,  primary: true,  label: "Entered by a team member"}
+    email_reply:       {weight: 0.85, primary: true,  label: "Stated in the prospect's own email"}
+    crm_interaction:   {weight: 0.8,  primary: true,  label: "Observed in our interaction history"}
+    vendor_enrichment: {weight: 0.85, primary: true,  label: "Enrichment vendor record"}
+    lead_source:       {weight: 0.6,  primary: false, label: "Lead source record"}
+    web_cited_claim:   {weight: 0.4,  primary: false, label: "Claim on a cited web page"}
+    llm_inference:     {weight: 0.3,  primary: false, label: "Inferred by the AI from other facts"}
+    pattern_guess:     {weight: 0.2,  primary: false, label: "Guessed from a naming pattern"}
+    contradiction:     {weight: 0.0,  primary: false, label: "Conflicting evidence"}
+  verified_threshold: 0.85
+  probable_threshold: 0.6
+  contradiction_cap: 0.45
+  overwrite_min_band: verified      # only verified facts replace an existing value
+  source_evidence_kinds:            # weak sources by name prefix (default: lead_source)
+    scout: pattern_guess
+  finding_ttl_days: {brief: 30, intent_signal: 14, news: 30, objection: 180}
+
+# ── Compliance (deterministic; enforced by guardrails AND the executor) ──────
+compliance:
+  frequency_caps:
+    - {scope: person, max_touches: 2,  window_days: 7}
+    - {scope: person, max_touches: 4,  window_days: 30}
+    - {scope: domain, max_touches: 10, window_days: 7}
+  min_hours_between_touches: 48
+  waive_gap_after_reply: true      # answering a prospect's reply is not an unsolicited touch; caps still apply
+  lawful_basis:
+    required: true
+    allowed: [consent, legitimate_interest]
+    default_on_ingest: legitimate_interest   # B2B default; set to null to require explicit records
+  daily_spend_limit: null
+
+# ── Inbound events, replies, autonomy ────────────────────────────────────────
+webhooks:
+  secret_env: OXYGEN_WEBHOOK_SECRET   # HMAC-SHA256 over "<timestamp>.<raw body>"
+  allow_unsigned: false
+  max_skew_s: 600
+
+replies:
+  llm_profile: researcher
+  # opt_out_patterns: deterministic regexes (defaults in code); a match always suppresses
+
+autonomy:
+  enabled: true
+  tick_interval_s: 15
+  max_work_items_per_tick: 10
+  max_tasks_per_tick: 20
+  max_cycles_per_lead_per_day: 12
+  reactions:                          # which events wake Oxygen for that prospect
+    lead_ingested:     {delay_minutes: 0}
+    lead_resourced:    {delay_minutes: 60}
+    task_completed:    {delay_minutes: 0}
+    task_failed:       {delay_minutes: 30}
+    approval_rejected: {delay_minutes: 0}
+    reply_received:    {delay_minutes: 0, priority: 9}
+    email_bounced:     {delay_minutes: 0, priority: 7}
+    meeting_booked:    {delay_minutes: 0, priority: 8}
+    meeting_cancelled: {delay_minutes: 0, priority: 8}
+
+# ── RevOps & learning ────────────────────────────────────────────────────────
+revops:
+  attribution_window_days: 14
+  positive_reply_categories: [positive_interest, meeting_request, question, referral]
+  negative_reply_categories: [not_interested, unsubscribe]
+  employee_bands: [50, 200, 1000, 5000]
+  min_sample_for_insight: 5           # smaller samples are shown to the planner as weak evidence
+  min_sample_for_recommendation: 20
+  insight_similar_journeys: 3

@@ -197,3 +197,16 @@ class MockPersonEnrichmentProvider(PersonEnrichmentProvider):
             data=data,
             external_id=fixture.get("external_id"),
         )
+
+
+class MockEnrichmentProvider(MockCompanyEnrichmentProvider, MockPersonEnrichmentProvider):
+    """
+    Single mock enrichment vendor serving both company and person enrichment.
+
+    Registered under one provider name ("mock_enrichment") in the unified
+    provider registry. Enabled only via the development/test config profiles.
+    """
+
+    @property
+    def provider_name(self) -> str:
+        return "mock_enrichment"

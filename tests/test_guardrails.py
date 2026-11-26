@@ -135,7 +135,7 @@ class TestGuardrailsUnit:
         result = await evaluator.evaluate(ctx)
         assert result.allowed is False
         assert "GR-003" in result.rule_ids
-        assert "enrich_company task requires" in result.reason
+        assert "enrich_company requires 'company_id' or 'domain'" in result.reason
 
     @pytest.mark.anyio
     async def test_duplicate_active_task_blocked(self):
@@ -215,7 +215,7 @@ class TestGuardrailsUnit:
         result = await evaluator.evaluate(ctx)
         assert result.allowed is False
         assert "GR-008" in result.rule_ids
-        assert "Company entity is missing" in result.reason
+        assert "required data missing (company)" in result.reason
 
     def test_registry_list_rules(self):
         reg = create_default_guardrail_registry()

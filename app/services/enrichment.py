@@ -18,18 +18,17 @@ Safety guarantees:
 Usage::
 
     svc = EnrichmentService()
-    result = await svc.enrich_company(
-        db=session,
-        company_id=uuid,
-        provider_name="mock_enrichment",
-    )
+    # provider chosen by the ProviderSelector (config, health, reliability, cost)
+    result = await svc.enrich_company_by_id(db=session, company_id=uuid)
+    # or pin a configured provider explicitly
+    result = await svc.enrich_company_by_id(db=session, company_id=uuid, provider_name="vendor_x")
 """
 
 import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,6 +67,14 @@ class EnrichmentOutcome:
         return self.error is None
 
 
+def _provider_label(provider: Union[str, Any, None]) -> str:
+    if provider is None:
+        return "auto"
+    if isinstance(provider, str):
+        return provider
+    return getattr(provider, "provider_name", type(provider).__name__)
+
+
 # ── Service ───────────────────────────────────────────────────────────────────
 
 class EnrichmentService:
@@ -78,13 +85,50 @@ class EnrichmentService:
     Stateless — all state lives in the database session.
     """
 
+    # ── Provider resolution ───────────────────────────────────────────────────
+
+    async def _resolve_provider(
+        self,
+        capability: str,
+        provider: Union[str, Any, None],
+        db: AsyncSession,
+        entity: Any,
+    ) -> tuple[Any, str]:
+        """
+        Resolve which enrichment provider to call.
+
+        - instance  -> used as-is (e.g. chosen by the TaskExecutor's selector)
+        - name      -> looked up in the unified provider registry
+        - None      -> ProviderSelector picks the best available provider
+        """
+        if provider is not None and not isinstance(provider, str):
+            return provider, _provider_label(provider)
+        if isinstance(provider, str):
+            if capability == "enrich_company":
+                return enrichment_registry.get_company_provider(provider), provider
+            return enrichment_registry.get_person_provider(provider), provider
+
+        from app.core.tenancy import tenant_of
+        from app.providers import get_provider_selector
+        from app.providers.selection import SelectionRequest
+
+        selector = get_provider_selector()
+        candidate = await selector.select(
+            SelectionRequest(capability=capability, tenant_id=tenant_of(entity)), session=db
+        )
+        if candidate is None:
+            raise EnrichmentProviderError(
+                "auto", f"No available provider for capability {capability!r}"
+            )
+        return candidate.record.instance, candidate.record.name
+
     # ── Company enrichment ────────────────────────────────────────────────────
 
     async def enrich_company_by_id(
         self,
         db: AsyncSession,
         company_id: uuid.UUID,
-        provider_name: str = "mock_enrichment",
+        provider_name: Union[str, Any, None] = None,
     ) -> EnrichmentOutcome:
         """
         Enrich a Company record identified by its database UUID.
@@ -92,7 +136,8 @@ class EnrichmentService:
         Args:
             db:            Active async session (caller manages commit).
             company_id:    UUID of the Company to enrich.
-            provider_name: Enrichment provider to call.
+            provider_name: Configured provider name, a provider instance, or None
+                           to let the ProviderSelector choose.
 
         Returns:
             EnrichmentOutcome describing what happened.
@@ -105,7 +150,7 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="company",
                 entity_id=company_id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 error=f"Company {company_id} not found in database",
             )
@@ -114,7 +159,7 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="company",
                 entity_id=company_id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 error="Company has no domain — cannot enrich without a domain key",
             )
@@ -125,20 +170,22 @@ class EnrichmentService:
         self,
         db: AsyncSession,
         company: Company,
-        provider_name: str,
+        provider_name: Union[str, Any, None],
     ) -> EnrichmentOutcome:
         """Internal: call provider, apply data, emit event."""
         domain = normalize_domain(company.domain) or company.domain
 
         try:
-            provider = enrichment_registry.get_company_provider(provider_name)
+            provider, provider_name = await self._resolve_provider(
+                "enrich_company", provider_name, db, company
+            )
             enrichment: CompanyEnrichmentResult = await provider.enrich_company(domain)
         except EnrichmentProviderError as exc:
             logger.error("Enrichment provider error [%s]: %s", provider_name, exc)
             event = await self._emit_event(
                 db,
                 event_type="enrichment_failed",
-                source=provider_name,
+                source=_provider_label(provider_name),
                 payload={
                     "entity_type": "company",
                     "entity_id": str(company.id),
@@ -149,7 +196,7 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="company",
                 entity_id=company.id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 event_id=event.id,
                 error=str(exc),
@@ -164,7 +211,7 @@ class EnrichmentService:
             event = await self._emit_event(
                 db,
                 event_type="enrichment_failed",
-                source=provider_name,
+                source=_provider_label(provider_name),
                 payload={
                     "entity_type": "company",
                     "entity_id": str(company.id),
@@ -175,13 +222,13 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="company",
                 entity_id=company.id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 event_id=event.id,
             )
 
         # 2. Apply changes and track what changed
-        fields_updated = self._apply_company_data(company, enrichment.data, provider_name)
+        fields_updated = await self._apply_company_data(db, company, enrichment.data, provider_name)
 
         # 3. Emit event
         event = await self._emit_event(
@@ -216,49 +263,37 @@ class EnrichmentService:
             event_id=event.id,
         )
 
-    def _apply_company_data(
+    async def _apply_company_data(
         self,
+        db: AsyncSession,
         company: Company,
         data: CompanyEnrichmentData,
         provider_name: str,
     ) -> list[str]:
-        """
-        Apply enrichment data to a Company ORM object.
-
-        Updates only non-None values from the enrichment result.
-        Returns a list of field names that were changed.
-        """
-        updated: list[str] = []
-
-        def _set(field_name: str, new_val) -> None:
-            if new_val is None:
-                return
-            old_val = getattr(company, field_name)
-            if old_val != new_val:
-                setattr(company, field_name, new_val)
-                updated.append(field_name)
-
-        _set("industry", data.industry)
-        _set("employee_count", data.employee_count)
-        _set("country", data.country)
-        _set("city", data.city)
-        _set("website", data.website)
-        _set("linkedin_url", data.linkedin_url)
-        _set("description", data.description)
-        _set("funding_stage", data.funding_stage)
-        _set("revenue_range", data.revenue_range)
-
-        # Technologies stored as JSON
-        if data.technologies:
-            new_tech = json.dumps(data.technologies)
-            if company.technologies != new_tech:
-                company.technologies = new_tech
-                updated.append("technologies")
-
-        # Always stamp enrichment metadata
+        """Record vendor values in the evidence ledger; the fact lifecycle applies them. Returns changed fields."""
+        values = {
+            "industry": data.industry, "employee_count": data.employee_count, "country": data.country,
+            "city": data.city, "website": data.website, "linkedin_url": data.linkedin_url,
+            "description": data.description, "funding_stage": data.funding_stage,
+            "revenue_range": data.revenue_range, "technologies": data.technologies or None,
+        }
+        updated = await self._record_vendor_facts(db, company, values, provider_name)
         company.enriched_at = datetime.now(timezone.utc)
         company.enrichment_source = provider_name
+        return updated
 
+    async def _record_vendor_facts(self, db: AsyncSession, entity, values: dict, provider_name: str) -> list[str]:
+        from app.memory.facts import EvidenceInput, FactLedger
+        ledger = FactLedger()
+        evidence = [EvidenceInput(kind="vendor_enrichment", detail=f"{provider_name} enrichment",
+                                  source_ref=provider_name)]
+        updated: list[str] = []
+        for name, value in values.items():
+            if value in (None, "", []):
+                continue
+            outcome = await ledger.record(db, entity, name, value, evidence, method=provider_name)
+            if outcome.changed:
+                updated.append(name)
         return updated
 
     # ── Person enrichment ─────────────────────────────────────────────────────
@@ -267,7 +302,7 @@ class EnrichmentService:
         self,
         db: AsyncSession,
         person_id: uuid.UUID,
-        provider_name: str = "mock_enrichment",
+        provider_name: Union[str, Any, None] = None,
     ) -> EnrichmentOutcome:
         """
         Enrich a Person record identified by its database UUID.
@@ -275,7 +310,8 @@ class EnrichmentService:
         Args:
             db:            Active async session (caller manages commit).
             person_id:     UUID of the Person to enrich.
-            provider_name: Enrichment provider to call.
+            provider_name: Configured provider name, a provider instance, or None
+                           to let the ProviderSelector choose.
 
         Returns:
             EnrichmentOutcome describing what happened.
@@ -287,7 +323,7 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="person",
                 entity_id=person_id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 error=f"Person {person_id} not found in database",
             )
@@ -296,7 +332,7 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="person",
                 entity_id=person_id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 error="Person has no email — cannot enrich without an email key",
             )
@@ -307,20 +343,22 @@ class EnrichmentService:
         self,
         db: AsyncSession,
         person: Person,
-        provider_name: str,
+        provider_name: Union[str, Any, None],
     ) -> EnrichmentOutcome:
         """Internal: call provider, apply data, emit event."""
         email = normalize_email(person.email) or person.email
 
         try:
-            provider = enrichment_registry.get_person_provider(provider_name)
+            provider, provider_name = await self._resolve_provider(
+                "enrich_person", provider_name, db, person
+            )
             enrichment: PersonEnrichmentResult = await provider.enrich_person(email)
         except EnrichmentProviderError as exc:
             logger.error("Enrichment provider error [%s]: %s", provider_name, exc)
             event = await self._emit_event(
                 db,
                 event_type="enrichment_failed",
-                source=provider_name,
+                source=_provider_label(provider_name),
                 payload={
                     "entity_type": "person",
                     "entity_id": str(person.id),
@@ -331,7 +369,7 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="person",
                 entity_id=person.id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 event_id=event.id,
                 error=str(exc),
@@ -346,7 +384,7 @@ class EnrichmentService:
             event = await self._emit_event(
                 db,
                 event_type="enrichment_failed",
-                source=provider_name,
+                source=_provider_label(provider_name),
                 payload={
                     "entity_type": "person",
                     "entity_id": str(person.id),
@@ -357,13 +395,13 @@ class EnrichmentService:
             return EnrichmentOutcome(
                 entity_type="person",
                 entity_id=person.id,
-                provider=provider_name,
+                provider=_provider_label(provider_name),
                 found=False,
                 event_id=event.id,
             )
 
         # Apply changes
-        fields_updated = self._apply_person_data(person, enrichment.data, provider_name)
+        fields_updated = await self._apply_person_data(db, person, enrichment.data, provider_name)
 
         # Emit event
         event = await self._emit_event(
@@ -398,38 +436,21 @@ class EnrichmentService:
             event_id=event.id,
         )
 
-    def _apply_person_data(
+    async def _apply_person_data(
         self,
+        db: AsyncSession,
         person: Person,
         data: PersonEnrichmentData,
         provider_name: str,
     ) -> list[str]:
-        """
-        Apply enrichment data to a Person ORM object.
-
-        Updates only non-None values. Returns a list of changed field names.
-        """
-        updated: list[str] = []
-
-        def _set(field_name: str, new_val) -> None:
-            if new_val is None:
-                return
-            old_val = getattr(person, field_name)
-            if old_val != new_val:
-                setattr(person, field_name, new_val)
-                updated.append(field_name)
-
-        _set("phone", data.phone)
-        _set("title", data.job_title)
-        _set("linkedin_url", data.linkedin_url)
-        _set("seniority", data.seniority)
-        _set("department", data.department)
-        _set("location", data.location)
-
-        # Always stamp enrichment metadata
+        """Record vendor values in the evidence ledger; the fact lifecycle applies them. Returns changed fields."""
+        values = {
+            "phone": data.phone, "title": data.job_title, "linkedin_url": data.linkedin_url,
+            "seniority": data.seniority, "department": data.department, "location": data.location,
+        }
+        updated = await self._record_vendor_facts(db, person, values, provider_name)
         person.enriched_at = datetime.now(timezone.utc)
         person.enrichment_source = provider_name
-
         return updated
 
     # ── Lead-level enrichment ─────────────────────────────────────────────────
@@ -438,7 +459,7 @@ class EnrichmentService:
         self,
         db: AsyncSession,
         lead_id: uuid.UUID,
-        provider_name: str = "mock_enrichment",
+        provider_name: Union[str, Any, None] = None,
     ) -> dict[str, EnrichmentOutcome]:
         """
         Enrich the Company and Person associated with a Lead.
@@ -449,7 +470,8 @@ class EnrichmentService:
         Args:
             db:            Active async session (caller manages commit).
             lead_id:       UUID of the Lead whose entities to enrich.
-            provider_name: Enrichment provider to call.
+            provider_name: Configured provider name, a provider instance, or None
+                           to let the ProviderSelector choose.
         """
         from app.models.base import Lead  # local import avoids circular
 

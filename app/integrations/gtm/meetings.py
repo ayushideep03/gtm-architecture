@@ -55,6 +55,10 @@ class MockMeetingBookingProvider(ExecutionProvider):
                 body=f"Simulated meeting scheduled for {scheduled_for}.",
                 channel_message_id=simulated_meeting_id,
                 occurred_at=datetime.now(timezone.utc),
+                task_id=context.task_id,
+                channel="meeting",
+                provider=self.provider_name,
+                details={"mode": "simulation"},
             )
             session.add(interaction)
 
@@ -65,6 +69,7 @@ class MockMeetingBookingProvider(ExecutionProvider):
             result={
                 "booked": True,
                 "mode": "simulation",
+                "interaction_recorded": bool(session and context.lead_id),
                 "meeting_id": simulated_meeting_id,
                 "scheduled_for": scheduled_for,
                 "topic": meeting_topic,

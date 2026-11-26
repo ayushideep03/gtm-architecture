@@ -15,19 +15,27 @@ class TaskStatus(str, Enum):
     DONE = "done"  # legacy alias for completed
     FAILED = "failed"
     SKIPPED = "skipped"
+    AWAITING_APPROVAL = "awaiting_approval"
+    CANCELLED = "cancelled"
 
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    TaskStatus.PENDING.value: {TaskStatus.IN_PROGRESS.value},
+    # pending -> failed: no provider could even start (unknown capability, attempts exhausted)
+    TaskStatus.PENDING.value: {TaskStatus.IN_PROGRESS.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value},
     TaskStatus.IN_PROGRESS.value: {
         TaskStatus.COMPLETED.value,
         TaskStatus.DONE.value,
         TaskStatus.FAILED.value,
+        TaskStatus.PENDING.value,   # retry scheduled, or stale-lease recovery
     },
     TaskStatus.COMPLETED.value: set(),
     TaskStatus.DONE.value: set(),
-    TaskStatus.FAILED.value: set(),
+    # failed -> pending only through the explicit recovery service (app/execution/recovery.py)
+    TaskStatus.FAILED.value: {TaskStatus.PENDING.value},
     TaskStatus.SKIPPED.value: set(),
+    # Approval workflow: approved -> pending; rejected / expired -> cancelled
+    TaskStatus.AWAITING_APPROVAL.value: {TaskStatus.PENDING.value, TaskStatus.CANCELLED.value},
+    TaskStatus.CANCELLED.value: set(),
 }
 
 
