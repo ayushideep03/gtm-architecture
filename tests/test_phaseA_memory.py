@@ -259,7 +259,7 @@ class TestApprovalWorkflow:
     @pytest.mark.anyio
     async def test_edit_approve_execute_records_touch(self, db):
         from app.compliance import approvals
-        from app.models.base import Interaction, Task
+        from app.models.base import Interaction
         _, _, lead = await _prospect(db)
         task, approval = await self._send_task(db, lead)
         edited = {"subject": "Edited subject", "body": "Edited body"}
@@ -277,7 +277,6 @@ class TestApprovalWorkflow:
     @pytest.mark.anyio
     async def test_payload_tampering_after_approval_is_refused(self, db):
         from app.compliance import approvals
-        from app.models.base import Task
         _, _, lead = await _prospect(db)
         task, approval = await self._send_task(db, lead)
         await approvals.approve(db, approval.id, reviewer="rep@test")
@@ -305,7 +304,6 @@ class TestApprovalWorkflow:
     @pytest.mark.anyio
     async def test_reject_cancels_and_approve_twice_fails(self, db):
         from app.compliance import approvals
-        from app.models.base import Task
         _, _, lead = await _prospect(db)
         task, approval = await self._send_task(db, lead)
         await approvals.reject(db, approval.id, reviewer="rep@test", note="not relevant")

@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 
 from app.core.database import AsyncSessionLocal
 from app.core.gtm_config import get_gtm_config

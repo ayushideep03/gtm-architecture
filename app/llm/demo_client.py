@@ -164,7 +164,6 @@ class ScriptedDemoClient:
                        refs=[f["id"] for f in findings][:3], conf=0.8)
 
         drafts, sends = done("draft_outreach"), [t for t in tasks if t["capability"] == "send_email"]
-        sent = [t for t in sends if t["status"] in ("completed", "done")]
         outbound = [i for i in inter if i["direction"] == "outbound" and i["type"] == "email_sent"]
         if open_("send_email") or open_("draft_outreach"):
             return out("wait", "An outreach step is already waiting (approval or execution).", wait=4, conf=0.9)

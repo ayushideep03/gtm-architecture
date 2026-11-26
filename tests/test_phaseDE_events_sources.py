@@ -5,9 +5,7 @@ event-driven autonomy loop, and lead sources (CSV, inbound forms, Apollo, Scout)
 
 import json
 import time
-import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import httpx
 import pytest
@@ -190,7 +188,7 @@ class TestAutonomy:
 
     @pytest.mark.anyio
     async def test_ticks_drive_the_loop_until_nothing_is_left(self, db):
-        from app.models.base import Event, Lead
+        from app.models.base import Event
         from app.services.autonomy import tick
         _, _, lead = await _prospect(db)
         lead.status = "new"

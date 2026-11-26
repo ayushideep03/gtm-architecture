@@ -12,8 +12,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.gtm_config import ProviderConfig, RateLimitConfig
-from app.core.tenancy import DEFAULT_TENANT_ID
+from app.core.gtm_config import RateLimitConfig
 from app.execution.models import ExecutionResult, InvalidStateTransitionError
 from app.integrations.lead_source_record import LeadSourceRecord
 from app.providers.runtime import RedisProviderHealth, RedisRateLimiter

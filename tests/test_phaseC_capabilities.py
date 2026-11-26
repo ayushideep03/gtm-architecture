@@ -6,7 +6,6 @@ All LLM calls are scripted; website access uses fake transports.
 
 import json
 import uuid
-from datetime import datetime, timezone
 
 import httpx
 import pytest

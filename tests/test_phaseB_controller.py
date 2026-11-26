@@ -6,13 +6,12 @@ adapters are tested against fake SDK clients to verify the exact request shape.
 """
 
 import json
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
-from app.llm import LLMError, LLMRouter, LLMUnavailable
+from app.llm import LLMError, LLMRouter
 from app.llm.base import LLMRefusal
 from app.oxygen.llm_engine import LLMDecisionEngine
 from app.oxygen.orchestrator import OxygenOrchestrator

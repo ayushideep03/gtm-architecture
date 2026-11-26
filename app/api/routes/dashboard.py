@@ -21,7 +21,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
-from app.models.base import Company, Event, Interaction, Lead, Person, Task
+from app.models.base import Company, Event, Lead, Person, Task
 from app.models.memory import AgentDecision, Approval, WorkItem
 
 router = APIRouter(tags=["dashboard"])

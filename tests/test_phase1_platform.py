@@ -32,7 +32,7 @@ from app.guardrails.models import GuardrailContext
 from app.guardrails.registry import create_default_guardrail_registry
 from app.providers.loader import load_providers_from_config
 from app.providers.registry import ProviderRegistry
-from app.providers.runtime import InMemoryRateLimiter, ProviderHealth, ProviderStat, StaticProviderStats
+from app.providers.runtime import ProviderStat, StaticProviderStats
 from app.providers.selection import ProviderSelector, SelectionRequest
 
 ROOT = Path(__file__).resolve().parents[1]
