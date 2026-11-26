@@ -429,3 +429,59 @@ class TestReactionCursorRace:
             if snapshot:
                 row.last_processed_timestamp, row.last_processed_event_id, row.processed_count = snapshot
             await s.commit()
+
+
+class TestSmtpAuthentication:
+    """SMTP login against a real (local) SMTP server that requires AUTH."""
+
+    @pytest.mark.anyio
+    async def test_login_used_and_wrong_password_fails_without_sending(self):
+        import socket
+        from aiosmtpd.controller import Controller
+        from aiosmtpd.smtp import AuthResult
+        from app.core.database import AsyncSessionLocal
+        from app.execution.models import ExecutionContext
+        from app.integrations.email_smtp import SmtpEmailProvider
+        from app.models.base import Lead, Task
+        from tests.compliance_helpers import make_contactable
+
+        received = []
+
+        class Sink:
+            async def handle_DATA(self, server, session, envelope):
+                received.append(envelope.rcpt_tos)
+                return "250 OK"
+
+        def authenticator(server, session, envelope, mechanism, auth_data):
+            ok = auth_data.login == b"alex" and auth_data.password == b"right-password"
+            return AuthResult(success=ok)
+
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        ctl = Controller(Sink(), hostname="127.0.0.1", port=port, authenticator=authenticator,
+                         auth_require_tls=False, auth_required=True)
+        ctl.start()
+        try:
+            async with AsyncSessionLocal() as s:
+                lead = Lead(source="smtp-auth", status="qualified")
+                s.add(lead)
+                await s.flush()
+                person = await make_contactable(s, lead)
+                t1 = Task(lead_id=lead.id, task_type="send_email", status="in_progress", payload="{}")
+                t2 = Task(lead_id=lead.id, task_type="send_email", status="in_progress", payload="{}")
+                s.add_all([t1, t2])
+                await s.flush()
+                ctx = lambda t: ExecutionContext(task_id=t.id, task_type="send_email", lead_id=lead.id,  # noqa: E731
+                                                 payload={"subject": "Hi", "body": "Hello"})
+                good = SmtpEmailProvider(host="127.0.0.1", port=port, security="none", from_address="alex@oxygen.test",
+                                         username="alex", password="right-password")
+                assert (await good.execute(ctx(t1), s)).success and received == [[person.email]]
+                bad = SmtpEmailProvider(host="127.0.0.1", port=port, security="none", from_address="alex@oxygen.test",
+                                        username="alex", password="wrong", timeout_s=2)  # aiosmtpd stalls on bad AUTH
+                with pytest.raises(Exception):
+                    await bad.execute(ctx(t2), s)      # executor turns this into PROVIDER_EXCEPTION -> needs review
+                assert len(received) == 1
+                await s.rollback()
+        finally:
+            ctl.stop()

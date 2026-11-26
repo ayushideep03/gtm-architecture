@@ -13,7 +13,8 @@ const AuthContext = createContext<AuthState>({ principal: null, required: false,
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<{ loading: boolean; required: boolean; configured: boolean; principal: string | null; error?: string }>(
+  const [state, setState] = useState<{ loading: boolean; required: boolean; configured: boolean; principal: string | null;
+                                       error?: string; unreachable?: boolean }>(
     { loading: true, required: false, configured: false, principal: null });
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -21,10 +22,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const check = async () => {
     try {
       const r = await fetch("/api/v1/auth/me");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       setState({ loading: false, required: j.auth_required, configured: j.configured, principal: j.principal });
     } catch {
-      setState((s) => ({ ...s, loading: false, error: "Cannot reach the Oxygen API." }));
+      // Never fall through to "no sign-in needed" just because the server could not be asked.
+      setState((s) => ({ ...s, loading: false, unreachable: true }));
     }
   };
 
@@ -57,6 +60,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
   };
 
   if (state.loading) return <div className="empty" style={{ paddingTop: 80 }}>Loading…</div>;
+  if (state.unreachable) {
+    return (
+      <div className="login">
+        <div className="card">
+          <div className="banner bad">Cannot reach the Oxygen API. Check that the server is running.</div>
+          <button className="btn primary" style={{ width: "100%" }}
+                  onClick={() => { setState((s) => ({ ...s, loading: true, unreachable: false })); check(); }}>Retry</button>
+        </div>
+      </div>
+    );
+  }
   if (state.required && !state.principal) {
     return (
       <div className="login">

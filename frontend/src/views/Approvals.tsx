@@ -25,7 +25,7 @@ export default function Approvals({ nav }: { nav: Nav }) {
         </select>
       </div>
       <ErrorNote error={error} />
-      <div className="grid" style={{ gridTemplateColumns: "minmax(240px, 340px) 1fr", alignItems: "start" }}>
+      <div className="grid split">
         <div className="card" style={{ padding: 6 }}>
           {!data?.length && <div className="empty">{filter === "pending" ? "Nothing waiting for approval" : "None"}</div>}
           {data?.map((a) => (
@@ -80,6 +80,9 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
     const f = memory.findings.find((x: any) => x.id === id); if (f) return `${human(f.kind)}: ${f.summary}`;
     const i = memory.interactions.find((x: any) => x.id === id); if (i) return `${i.direction} ${human(i.type)}: ${i.subject ?? ""}`;
     const t = memory.tasks.find((x: any) => x.id === id); if (t) return `Task ${human(t.capability)} (${t.status})`;
+    const d = (memory.decisions ?? []).find((x: any) => x.id === id); if (d) return `Earlier decision: ${human(d.action)}`;
+    const ev = (memory.events ?? []).find((x: any) => x.id === id);
+    if (ev) return `Event: ${human(ev.type)}${ev.payload?.capability ? ` (${human(ev.payload.capability)})` : ""} · ${ago(ev.occurred_at)}`;
     if (memory.lead?.id === id) return "Lead record"; if (memory.person?.id === id) return "Contact record"; if (memory.company?.id === id) return "Company record";
     return id.slice(0, 8);
   };
