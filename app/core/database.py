@@ -118,12 +118,35 @@ from sqlalchemy import event as _sa_event, text as _sa_text  # noqa: E402
 from sqlalchemy.orm import Session as _SyncSession  # noqa: E402
 
 
+# Migration 0013's RLS-enforcing role, named after the database (roles are server-wide).
+# The right to switch to it ("SET", PostgreSQL 16+; membership implied it before).
+CAN_SET_ROLE = "(CASE WHEN current_setting('server_version_num')::int >= 160000 THEN 'SET' ELSE 'MEMBER' END)"
+ENFORCING_ROLE_SQL = "'oxygen_app_' || left(regexp_replace(lower(current_database()), '[^a-z0-9_]', '_', 'g'), 50)"
+
+
+async def rls_status() -> dict:
+    """Whether tenant isolation is enforced by PostgreSQL for organisation-scoped transactions."""
+    async with engine.connect() as c:
+        row = (await c.execute(_sa_text(
+            f"SELECT r.rolbypassrls, (SELECT pg_has_role(current_user, e.oid, {CAN_SET_ROLE}) FROM pg_roles e "
+            f" WHERE e.rolname = {ENFORCING_ROLE_SQL}) FROM pg_roles r WHERE r.rolname = current_user"))).first()
+    bypass, member = bool(row[0]), bool(row[1])
+    return {"connection_bypasses_rls": bypass, "enforcing_role": member, "enforced": (not bypass) or member}
+
+
 @_sa_event.listens_for(_SyncSession, "after_begin")
 def _apply_tenant(session, transaction, connection) -> None:
     from app.core.tenancy import current_tenant
     tenant = current_tenant.get()
     if tenant is not None:
-        connection.execute(_sa_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+        # Same statement, transaction-local: switch to the RLS-enforcing role (migration 0013) where it
+        # exists and this connection may assume it. Hosted owner roles often have BYPASSRLS, which would
+        # make PostgreSQL ignore every tenant policy; ``oxygen_app`` never does.
+        connection.execute(_sa_text(
+            "SELECT set_config('app.tenant_id', :t, true), "
+            "(SELECT set_config('role', r.rolname, true) FROM pg_roles r "
+            f" WHERE r.rolname = {ENFORCING_ROLE_SQL} AND pg_has_role(current_user, r.oid, {CAN_SET_ROLE}))"),
+            {"t": str(tenant)})
 
 
 # ── FastAPI dependency ────────────────────────────────────────────────────────

@@ -70,5 +70,11 @@ async def ensure_ready(*, force: bool = False) -> dict:
         finally:
             await conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": BOOTSTRAP_LOCK})
             await conn.commit()
+    from app.core.database import rls_status
+    rls = await rls_status()
+    if not rls["enforced"]:
+        # Fail closed: never serve a multi-tenant app whose database ignores the tenant policies.
+        raise RuntimeError("Tenant isolation is not enforced: the database role bypasses row-level security "
+                           "and the oxygen_app enforcing role is unavailable (migration 0013 needs CREATEROLE).")
     _ready = True
-    return {"ready": True, "migrated": migrated, "seeded": seeded, "revision": head}
+    return {"ready": True, "migrated": migrated, "seeded": seeded, "revision": head, "rls": rls}
