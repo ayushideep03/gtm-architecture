@@ -40,7 +40,12 @@ def database_url() -> str:
     """The URL to connect with. Hosted Postgres (Neon via Vercel) also provides a direct,
     unpooled URL: prefer it, because a transaction-mode pooler (PgBouncer) breaks asyncpg's
     prepared statements, while the per-transaction tenant setting works on either."""
-    return os.environ.get("DATABASE_URL_UNPOOLED") or get_settings().DATABASE_URL
+    for name in ("DATABASE_URL_UNPOOLED", "POSTGRES_URL_NON_POOLING"):   # Neon / Vercel Postgres names
+        if os.environ.get(name):
+            return os.environ[name]
+    if not os.environ.get("DATABASE_URL") and os.environ.get("POSTGRES_URL"):
+        return os.environ["POSTGRES_URL"]
+    return get_settings().DATABASE_URL
 
 
 def _build_async_url(url: str) -> str:

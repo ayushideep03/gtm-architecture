@@ -24,3 +24,5 @@ htmlcov/
 
 # Local archive snapshots (one contains a .env)
 *.zip
+.vercel
+.env*

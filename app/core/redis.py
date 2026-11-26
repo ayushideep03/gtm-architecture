@@ -25,6 +25,12 @@ logger = get_logger(__name__)
 _redis_pool: Redis | None = None
 
 
+def redis_url() -> str:
+    """REDIS_URL, or the URL an Upstash / Vercel KV integration provides (KV_URL)."""
+    import os
+    return os.environ.get("REDIS_URL") or os.environ.get("KV_URL") or get_settings().REDIS_URL
+
+
 def get_redis_pool() -> Redis:
     """
     Return the shared Redis connection pool (creates it on first call).
@@ -36,13 +42,13 @@ def get_redis_pool() -> Redis:
     if _redis_pool is None:
         settings = get_settings()
         _redis_pool = aioredis.from_url(
-            settings.REDIS_URL,
+            redis_url(),
             encoding="utf-8",
             decode_responses=True,
             max_connections=20,
         )
         from urllib.parse import urlsplit
-        u = urlsplit(settings.REDIS_URL)
+        u = urlsplit(redis_url())
         logger.info("Redis connection pool created: %s://%s", u.scheme, u.hostname)   # never log credentials
     return _redis_pool
 
@@ -114,7 +120,7 @@ def get_loop_redis() -> Redis:
     client = _loop_clients.get(loop)
     if client is None:
         client = aioredis.from_url(
-            get_settings().REDIS_URL, encoding="utf-8", decode_responses=True,
+            redis_url(), encoding="utf-8", decode_responses=True,
             max_connections=20, socket_timeout=2, socket_connect_timeout=2,
         )
         _loop_clients[loop] = client
