@@ -19,39 +19,42 @@ python start.py
 `start.py` checks PostgreSQL and Redis, applies migrations, builds the dashboard if needed, starts the API **and**
 the background worker, and opens **http://127.0.0.1:8000/**. Ctrl+C stops everything.
 
-- **No LLM key set →** it runs the `demo` profile: a clearly labelled *scripted demo playbook* stands in for the
-  language model (vendor `demo`, model `scripted-demo-playbook`; the dashboard shows a banner), and four labelled
-  SAMPLE prospects are loaded. Everything still goes through the real guardrails, compliance and approval gates.
+- **No LLM key set →** it runs **DEMO MODE** (`demo` profile): the complete 12-stage pipeline with demo
+  providers behind the live interfaces (Apollo, OpenAI/Anthropic, SMTP, IMAP, Google Calendar, Calendly,
+  research). No API keys are needed and **nothing leaves the machine**: the profile disables every live provider
+  and the executor refuses non-demo providers for external actions. It loads two fictional organisations
+  (*Northstar Revenue Cloud*, *Helix Clinical Systems*) with admin / operator / approver users, a campaign each
+  and their target accounts. Sign in by picking a demo user.
 - **`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set →** it runs the `development` profile with the real AI Sales
   Controller (mock providers only where no real credentials exist).
 - Options: `--profile <name>`, `--port`, `--no-worker`, `--no-browser`, `--no-seed`, `--rebuild`.
 
+| Guide | |
+| :--- | :--- |
+| [docs/DEMO_PRESENTATION_GUIDE.md](docs/DEMO_PRESENTATION_GUIDE.md) | How to present it (storyline, scenarios, reset) |
+| [docs/12_STAGE_WORKFLOW.md](docs/12_STAGE_WORKFLOW.md) | What each pipeline stage does and records |
+| [docs/DEMO_FRAMEWORK_ARCHITECTURE.md](docs/DEMO_FRAMEWORK_ARCHITECTURE.md) | Architecture, tenancy (row-level security), roles, safety |
+| [docs/MOCK_INTEGRATION_GUIDE.md](docs/MOCK_INTEGRATION_GUIDE.md) | Every demo provider and how it is labelled |
+| [docs/FUTURE_API_INTEGRATION.md](docs/FUTURE_API_INTEGRATION.md) | Switching to live integrations; go-live checklist |
+| [docs/FINAL_DEMO_VALIDATION.md](docs/FINAL_DEMO_VALIDATION.md) | What was tested and the results |
+
 ### The dashboard (`frontend/`, React + TypeScript)
 
-| View | What it shows / does |
+| Area | Screens |
 | :--- | :--- |
-| **Overview** | KPI tiles from persisted data (click through), prospects by stage, recent activity, demo scenario loader |
-| **Lead Intelligence** | Searchable prospect list; detail drawer with contact/company, scored facts, compliance state, research findings, decision history, timeline, tasks; **Run Oxygen** button; reply simulator (demo profiles only) |
-| **Oxygen Control Centre** | Live event feed (SSE), every decision with reasoning, confidence, evidence, risks, guardrail result, provider and execution result; engine/campaign status; pause / resume / run-tick; human work queue; provider availability with reasons |
-| **Pipeline** | Prospects by stage (stages move only on real events) |
-| **Approval Centre** | Every external action waits here: view the draft, **edit**, approve or reject, with Oxygen's reasoning, the evidence it cited and the current compliance state |
-| **RevOps** | Funnel, reply/positive/meeting rates by channel and segment (small samples flagged), approvals and decision stats, provider success/latency, recommendations (never auto-applied) |
+| Home | **Dashboard** (management KPIs, conversion rates, funnel, trend, campaign performance) · **Demo Control Centre** (demo mode) |
+| Pipeline | **Campaigns** · **Target Accounts** (stages 1–2) · **Contacts** (3) · **Qualification** (4) · **Research** (5) · **AI Drafts** (6) · **Approval Centre** (7) · **Follow-ups** (8) · **Inbox** (9–10) · **Meetings** (11) |
+| Operations | **RevOps** (12) · **Pipeline Board** · **Lead Intelligence** (prospect drawer with the 12-stage **Workflow** tab) · **Workflow Engine** (live decisions and feed) |
+| Settings | **Integrations** (status, requirements, setup, connection test) · **Organisation & Users** (roles, API keys) |
 
 Development: `cd frontend && npm install && npm run dev` (Vite on :5173, proxies `/api` to :8000).
 
-### Demo scenarios
+### Demo scenarios (Demo Control Centre)
 
-`POST /api/v1/demo/seed` (or the Overview button) creates four fictional prospects on reserved `.example` domains:
-
-| Scenario | What Oxygen does |
-| :--- | :--- |
-| High intent (Priya Shah, VP Sales) | intent → qualify → personalised draft → **approval** → send; simulate a positive reply → meeting invite → **approval** → accept → meeting booked → hand-off to a person |
-| Insufficient information (Sam Taylor) | enrichment finds nothing → **escalates to a human** instead of guessing |
-| No response (Marco Rossi) | first email 4 days ago → follow-up draft that adds something new → **approval**; stops after the sequence |
-| Negative response (Elena Novak) | "Please remove me" reply → deterministic opt-out → suppression + consent withdrawn → **stops** |
-
-Replies are simulated through the real inbound pipeline (`POST /api/v1/demo/leads/{id}/simulate-reply`). Demo
-endpoints return 404 outside the `development`, `demo` and `test` profiles.
+Successful conversion · Prospect objection · Prospect asks a question · Question Oxygen cannot answer (escalated) ·
+Prospect requests a meeting · Prospect does not reply (demo clock + follow-up) · Prospect unsubscribes. Each runs
+through the real workflow engine and approval gates; approvals are only auto-approved for an admin/approver
+presenter and are recorded under their name. **Reset demo environment** makes every scenario repeatable.
 
 ---
 
@@ -414,14 +417,14 @@ Leave it off to keep existing data.
 
 ## 7. How to Run Tests
 
-Run the complete test suite (427 tests). Tests use a separate `gtm_test` database (created and migrated
+Run the complete test suite (438 tests). Tests use a separate `gtm_test` database (created and migrated
 automatically) and their own Redis key prefix, so they never touch your development data:
 ```bash
 python -m pytest -v
 ```
 
 Live end-to-end validation (real API + two workers + a local SMTP sink, isolated `gtm_e2e` database,
-36 stage checks; no mail leaves the machine):
+37 stage checks; no mail leaves the machine):
 ```bash
 python scripts/e2e/run_e2e.py
 ```

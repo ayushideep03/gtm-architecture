@@ -144,6 +144,8 @@ class TestTenantIsolation:
         # direct access by id across organisations is not found
         assert (await helix.get(f"/api/v1/memory/leads/{ns[0]['lead_id']}")).status_code == 404
         assert (await helix.get(f"/api/v1/workflow/leads/{ns[0]['lead_id']}")).status_code == 404
+        # demo triggers cannot reach another organisation's prospect either
+        assert (await helix.post(f"/api/v1/demo/leads/{ns[0]['lead_id']}/reply", json={"kind": "interested"})).status_code == 400
         hc = (await helix.get("/api/v1/campaigns")).json()
         assert [c["name"] for c in hc] == ["Hospital Groups — Patient Flow"]
         # metrics are per organisation
@@ -358,3 +360,19 @@ class TestResponseIntelligenceGate:
         assert uncovered == ["Can you deploy on-prem in Singapore?"]          # -> escalated, not answered
         hits, _ = match("We already use Outreach for this.", kb, "objection")
         assert [h["id"] for h in hits] == ["obj-competitor"]
+
+
+@pytest.mark.usefixtures("demo_profile")
+class TestReplyWithdrawsQueuedOutreach:
+    @pytest.mark.anyio
+    async def test_pending_outreach_approval_withdrawn_when_prospect_replies(self, app):
+        from app.pipeline import demo_control
+        admin = await _loaded(app)
+        await admin.post("/api/v1/demo/start")
+        await demo_control.tick_now(8)
+        appr = [a for a in (await admin.get("/api/v1/approvals")).json() if a["capability"] == "send_email"][0]
+        res = await demo_control.simulate_reply(uuid.UUID(appr["lead_id"]), "question")
+        assert any("withdrawn" in x for x in res["actions"]), res["actions"]
+        after = (await admin.get(f"/api/v1/approvals/{appr['id']}")).json()
+        assert after["status"] == "rejected" and after["decided_by"] == "system (prospect replied)"
+        await admin.aclose()

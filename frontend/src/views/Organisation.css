@@ -1,0 +1,11 @@
+/* Organisation & Users view. Colours come only from styles.css variables. */
+.org .roles { display: grid; gap: 10px; }
+.org .role { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; align-items: start; }
+.org .table-scroll { overflow-x: auto; }
+.org tr.inactive td { color: var(--text-3); }
+.org td select { padding: 4px 8px; }
+.org .key-box { border: 1px dashed var(--border); background: var(--surface-2); border-radius: 8px; padding: 12px; }
+.org .key-box code { user-select: all; overflow-wrap: anywhere; word-break: break-all; font-size: 13px; }
+@media (max-width: 480px) {
+  .org .role { grid-template-columns: 1fr; gap: 4px; }
+}

@@ -9,8 +9,10 @@ Oxygen — one-command start (macOS, Linux, Windows).
 
 Profile choice when --profile is not given: $GTM_PROFILE if set; otherwise
 "development" when OPENAI_API_KEY or ANTHROPIC_API_KEY is set, else "demo"
-(scripted demo AI, clearly labelled in the dashboard). The demo profile also
-loads the four sample scenarios.
+(scripted demo AI and demo providers, clearly labelled in the dashboard; no API
+keys needed and nothing leaves the machine). The demo profile also loads the
+demo dataset: two fictional organisations with admin/operator/approver users,
+a campaign each and their target accounts. Sign in by picking a demo user.
 
 Run it with the project's virtualenv Python (e.g. .venv/bin/python start.py on
 macOS/Linux or .venv\\Scripts\\python start.py on Windows).
@@ -138,7 +140,7 @@ def main() -> None:
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--no-worker", action="store_true", help="don't start the background worker")
     ap.add_argument("--rebuild", action="store_true", help="force a dashboard rebuild")
-    ap.add_argument("--no-seed", action="store_true", help="don't load the demo scenarios (demo profile)")
+    ap.add_argument("--no-seed", action="store_true", help="don't load the demo dataset (demo profile)")
     args = ap.parse_args()
 
     print("\n  Oxygen — Autonomous AI Sales OS\n")
@@ -166,16 +168,16 @@ def main() -> None:
     say(f"✔ API running on {base} (docs: {base}/docs)")
 
     if profile == "demo" and not args.no_seed:
-        headers = {"content-type": "application/json"}
-        first_key = (os.environ.get("OXYGEN_API_KEYS") or "").split(",")[0].partition("=")[2].strip()
-        if first_key:
-            headers["x-api-key"] = first_key
-        req = urllib.request.Request(f"{base}/api/v1/demo/seed", method="POST", data=b"{}", headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=20):
-                say("✔ Demo scenarios loaded (4 labelled SAMPLE prospects)")
-        except OSError as exc:
-            say(f"! Could not load demo scenarios: {exc}")
+        # Load the demo dataset in-process (idempotent): two fictional organisations, users per role,
+        # campaigns and target accounts. Nothing here contacts any external service.
+        seed = subprocess.run([sys.executable, "-c", "import asyncio; from app.pipeline import demo_control; "
+                               "r = asyncio.run(demo_control.load()); print(sum(x['accounts'] for x in r['loaded']))"],
+                              cwd=ROOT, env=env, capture_output=True, text=True)
+        if seed.returncode == 0:
+            say(f"✔ Demo dataset loaded (2 organisations, {seed.stdout.strip().splitlines()[-1]} target accounts, "
+                "users per role) — sign in from the dashboard")
+        else:
+            say("! Could not load the demo dataset: " + (seed.stderr.strip().splitlines() or ["unknown error"])[-1])
 
     if not args.no_worker:
         procs.append(subprocess.Popen([sys.executable, "-m", "app.worker"], cwd=ROOT, env=env))

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, Approval } from "../api";
 import type { Nav } from "../App";
 import { ago, ErrorNote, human, Status, useData, useToast } from "../ui";
+import { useAuth, useCan } from "../auth";
 
 export default function Approvals({ nav }: { nav: Nav }) {
   const [filter, setFilter] = useState("pending");
@@ -54,6 +55,8 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const { data: memory } = useData<any>(a.lead_id ? `/memory/leads/${a.lead_id}` : null);
+  const can = useCan();
+  const { role } = useAuth();
   useEffect(() => { setSubject(payload.subject ?? ""); setBody(payload.body ?? ""); setTopic(payload.topic ?? ""); }, [a.id]); // eslint-disable-line
 
   const pending = a.status === "pending";
@@ -110,7 +113,10 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
             <pre className="json">{JSON.stringify(payload, null, 1)}</pre>
           </div>
         ) : <pre className="json">{JSON.stringify(payload, null, 1)}</pre>}
-        {pending && (
+        {pending && !can.approve && (
+          <div className="banner info" style={{ marginTop: 10 }}>Your role ({role}) can review but not approve. An approver or admin decides.</div>
+        )}
+        {pending && can.approve && (
           <div className="grid" style={{ gap: 8, marginTop: 10 }}>
             <input className="text" placeholder="Optional note for the record" value={note} onChange={(e) => setNote(e.target.value)} />
             <div className="row">
@@ -124,6 +130,9 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
           <div className="sub" style={{ marginTop: 10 }}>
             {human(a.status)} by {a.decided_by ?? "—"} {ago(a.decided_at)}{a.edited ? " (edited before approval)" : ""}{a.reviewer_note ? ` — “${a.reviewer_note}”` : ""}
           </div>
+        )}
+        {(a.edited || (pending && edited)) && (
+          <PayloadDiff before={a.original_payload} after={pending ? (isEmail ? { ...a.original_payload, subject, body } : { ...a.original_payload, topic }) : (a.final_payload ?? {})} />
         )}
       </div>
       <div className="card">
@@ -141,6 +150,24 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Payload change detection: what the reviewer changed compared with Oxygen's proposal. */
+function PayloadDiff({ before, after }: { before: Record<string, any>; after: Record<string, any> }) {
+  const keys = Array.from(new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]))
+    .filter((k) => JSON.stringify(before?.[k]) !== JSON.stringify(after?.[k]));
+  if (!keys.length) return null;
+  return (
+    <div className="card" style={{ marginTop: 10, background: "var(--surface-2)" }}>
+      <h2>Changed by the reviewer <small>{keys.length} field{keys.length === 1 ? "" : "s"}; approval is locked to the final text</small></h2>
+      {keys.map((k) => (
+        <div key={k} className="grid g2" style={{ gap: 8, marginBottom: 8 }}>
+          <div><div className="sub">{human(k)} — proposed</div><div className="email diff-old">{String(before?.[k] ?? "—")}</div></div>
+          <div><div className="sub">{human(k)} — final</div><div className="email diff-new">{String(after?.[k] ?? "—")}</div></div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -185,8 +185,13 @@ async def _accounts(db, campaign_id, search, industry, discovery_status, priorit
         stmt = stmt.where(CampaignAccount.selected.is_(selected))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
     off, lim = _page(page, page_size)
-    rows = (await db.execute(stmt.order_by(CampaignAccount.priority, Company.name).offset(off).limit(lim))).all()
-    industries = sorted({i for (i,) in (await db.execute(select(Company.industry).distinct())).all() if i})
+    from sqlalchemy import case
+    prio = case((CampaignAccount.priority == "high", 0), (CampaignAccount.priority == "medium", 1), else_=2)
+    rows = (await db.execute(stmt.order_by(prio, Company.name).offset(off).limit(lim))).all()
+    ind_q = select(Company.industry).join(CampaignAccount, CampaignAccount.company_id == Company.id).distinct()
+    if campaign_id:
+        ind_q = ind_q.where(CampaignAccount.campaign_id == campaign_id)
+    industries = sorted({i for (i,) in (await db.execute(ind_q)).all() if i})
     return {"total": total, "page": page, "page_size": page_size, "industries": industries,
             "items": [camp.account_view(a, co) for a, co in rows]}
 
@@ -272,7 +277,8 @@ async def contacts(campaign_id: Optional[uuid.UUID] = None, search: Optional[str
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
     off, lim = _page(page, page_size)
     rows = (await db.execute(stmt.order_by(Company.name, Person.last_name).offset(off).limit(lim))).all()
-    return {"total": total, "page": page, "page_size": page_size, "items": [{
+    departments = sorted({d for (d,) in (await db.execute(select(Person.department).distinct())).all() if d})
+    return {"total": total, "page": page, "page_size": page_size, "departments": departments, "items": [{
         "lead_id": str(l.id), "person_id": str(p.id), "name": " ".join(filter(None, [p.first_name, p.last_name])),
         "title": p.title, "department": p.department, "seniority": p.seniority, "email": p.email,
         "location": p.location, "verification_status": p.verification_status or "unknown",
@@ -360,7 +366,7 @@ async def recalculate(campaign_id: uuid.UUID, request: Request, db: AsyncSession
                                      "by": _actor(request)})))
     await db.commit()
     return {"rescored": len(leads), "qualified": q, "disqualified": len(leads) - q,
-            "note": "Leads already contacted keep their stage; only their score is unchanged."}
+            "note": "Only leads not yet contacted are re-scored; contacted leads keep their stage and score."}
 
 
 # ── Research (stage 5) ────────────────────────────────────────────────────────
@@ -379,6 +385,8 @@ async def research(lead_id: Optional[uuid.UUID] = None, company_id: Optional[uui
     if kind:
         stmt = stmt.where(ResearchFinding.kind == kind)
     rows = (await db.execute(stmt.order_by(ResearchFinding.created_at.desc()).limit(limit))).scalars().all()
+    from app.core.gtm_config import get_gtm_config
+    scripted_ai = any(p.provider == "demo" for p in get_gtm_config().llm.profiles.values())
     seen, items = set(), []
     for f in rows:   # one company's signals are recorded per lead; show each once per company
         key = (str(f.entity_id), f.summary)
@@ -391,7 +399,9 @@ async def research(lead_id: Optional[uuid.UUID] = None, company_id: Optional[uui
                       "label": body.get("label") or f.kind.replace("_", " ").title(), "statement": f.summary,
                       "source": body.get("source") or f.source, "source_ref": body.get("source_ref"),
                       "why_it_matters": body.get("why_it_matters"), "strength": body.get("strength"),
-                      "confidence": f.confidence, "simulated": bool(body.get("demo") or "simulated" in (f.source or "")),
+                      "confidence": f.confidence,
+                      "simulated": bool(body.get("demo") or "simulated" in (f.source or "")
+                                        or (scripted_ai and f.kind == "intent_assessment")),
                       "citations": f.citations, "created_at": f.created_at})
     companies: dict[str, dict] = {}
     if items:
@@ -545,6 +555,7 @@ async def run_follow_up_now(follow_up_id: uuid.UUID, db: AsyncSession = Depends(
     if f.status != "scheduled":
         raise HTTPException(status.HTTP_409_CONFLICT, f"follow-up is {f.status}")
     f.due_at = datetime.now(timezone.utc)
+    await db.flush()                      # the session does not autoflush: persist before the due query
     n = await fu.process_due(db)
     await db.commit()
     return {**fu.view(f), "made_due": n}

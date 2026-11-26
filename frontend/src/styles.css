@@ -78,6 +78,7 @@ a { color: var(--accent); }
 .nav { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; color: var(--text-2); cursor: pointer; border: 0; background: none; text-align: left; width: 100%; }
 .nav:hover { background: var(--surface-2); color: var(--text); }
 .nav.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.stage-no { font-size: 10.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .side-foot { margin-top: auto; padding: 10px; font-size: 12px; color: var(--text-3); display: grid; gap: 6px; }
 
 .main { padding: 22px 28px 48px; min-width: 0; }
@@ -169,11 +170,58 @@ input.text { width: 100%; }
 .bar-row:hover .bar-fill { filter: brightness(1.12); }
 
 .login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-.login form { width: min(380px, 100%); display: grid; gap: 4px; }
+.login-card { width: min(460px, 100%); }
+.demo-user { display: grid; justify-items: start; gap: 2px; text-align: left; white-space: normal; width: 100%; }
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 8px; z-index: 40; max-width: 420px; box-shadow: var(--shadow); }
 .toast.err { background: var(--bad); color: #fff; }
 pre.json { background: var(--surface-2); border-radius: 8px; padding: 10px; font-family: var(--mono); font-size: 12px; overflow: auto; max-height: 260px; margin: 0; white-space: pre-wrap; }
 .email { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; }
+
+.badge.demo { background: var(--warn-soft); color: var(--warn); letter-spacing: 0.04em; font-size: 10.5px; }
+.empty-state { text-align: center; padding: 28px 16px; color: var(--text-2); display: grid; gap: 4px; justify-items: center; }
+.spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+  display: inline-block; animation: spin 0.8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 30; display: grid; place-items: center; padding: 16px; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(520px, 100%);
+  max-height: calc(100vh - 32px); display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); }
+.modal.wide { width: min(860px, 100%); }
+.modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.modal-head h2 { margin: 0; font-size: 15px; }
+.modal-body { padding: 16px; overflow: auto; display: grid; gap: 10px; }
+.modal-foot { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+.btn.danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+.pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 10px 4px 0; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.toolbar .grow { flex: 1 1 200px; min-width: 0; }
+.form { display: grid; gap: 10px; }
+.form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--text-2); }
+.form .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; }
+.nav-group { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding: 12px 10px 4px; }
+.side-scroll { overflow: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.stage { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
+.stage b { display: block; font-size: 12px; }
+.stage.done { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); background: var(--good-soft); }
+.stage.active { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); }
+.stage.failed { border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); background: var(--bad-soft); }
+.linechart { position: relative; }
+.linechart svg { width: 100%; height: auto; display: block; }
+.linechart .grid { stroke: var(--border); stroke-width: 1; }
+.linechart .crosshair { stroke: var(--text-3); stroke-dasharray: 3 3; }
+.linechart .axis { fill: var(--text-3); font-size: 11px; }
+.linechart .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+.linechart .legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.linechart .tip { position: absolute; top: 0; right: 0; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+.split3 { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.list-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 10px; border-radius: 8px;
+  cursor: pointer; color: var(--text); border-bottom: 1px solid var(--border); }
+.list-item:hover { background: var(--surface-2); }
+.list-item.active { background: var(--accent-soft); }
+.diff-old { border-left: 3px solid var(--bad); }
+.diff-new { border-left: 3px solid var(--good); }
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
@@ -181,6 +229,8 @@ pre.json { background: var(--surface-2); border-radius: 8px; padding: 10px; font
   .brand, .side-foot { display: none; }
   .nav { width: auto; white-space: nowrap; }
   .main { padding: 16px; }
-  .g2, .g3, .split { grid-template-columns: 1fr; }
+  .g2, .g3, .split, .split3 { grid-template-columns: 1fr; }
+  .side-scroll { flex-direction: row; }
+  .nav-group { display: none; }
   .kv { grid-template-columns: 1fr; }
 }

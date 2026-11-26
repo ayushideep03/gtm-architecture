@@ -1,0 +1,16 @@
+/* Accounts & Contacts views — uses only theme variables from styles.css */
+.acc-icp { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.acc-icp .acc-icp-item { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.acc-icp .acc-icp-item span { color: var(--text-3); margin-right: 4px; }
+.acc-table td { white-space: nowrap; }
+.acc-table td.wrap { white-space: normal; min-width: 160px; }
+.acc-chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; background: var(--surface-2);
+  color: var(--text-2); border: 1px solid var(--border); }
+.acc-table select { padding: 3px 6px; font-size: 12.5px; }
+.acc-table input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+.acc-select-wrap select { max-width: 100%; }
+.acc-toolbar select, .acc-toolbar input.search { min-width: 0; max-width: 100%; }
+@media (max-width: 600px) {
+  .acc-toolbar > * { flex: 1 1 140px; }
+  .acc-toolbar .grow { flex-basis: 100%; }
+}

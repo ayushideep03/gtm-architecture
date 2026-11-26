@@ -29,7 +29,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   get: <T,>(path: string) => request<T>("GET", path),
   post: <T,>(path: string, body: unknown = {}) => request<T>("POST", path, body),
+  put: <T,>(path: string, body: unknown = {}) => request<T>("PUT", path, body),
+  patch: <T,>(path: string, body: unknown = {}) => request<T>("PATCH", path, body),
 };
+
+/** Build a query string from defined, non-empty values. */
+export function qs(params: Record<string, string | number | boolean | null | undefined>): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") p.set(k, String(v));
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
 
 export type Json = Record<string, any>;
 

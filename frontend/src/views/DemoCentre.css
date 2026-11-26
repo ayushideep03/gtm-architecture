@@ -1,0 +1,40 @@
+/* Demo Control Centre — presenter-friendly sizing. Colours come only from styles.css variables. */
+.dc .btn.big { min-height: 44px; padding: 10px 16px; font-size: 14.5px; }
+.dc .actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 10px; }
+.dc .actions .btn { width: 100%; white-space: normal; text-align: center; }
+.dc .section-note { margin: -6px 0 12px; }
+.dc .status-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; margin-bottom: 14px; }
+.dc .status-strip .card { display: grid; gap: 4px; align-content: start; }
+.dc .status-strip .lbl { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.dc .status-strip .val { font-size: 22px; font-weight: 650; letter-spacing: -0.015em; font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere; }
+.dc .subhead { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 8px; }
+.dc .result { border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius); padding: 12px 14px;
+  margin-top: 14px; display: grid; gap: 8px; }
+.dc .result h3 { margin: 0; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.dc .picker { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.dc .picker select, .dc .picker input { width: 100%; min-height: 40px; }
+.dc .picked { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding: 10px 12px;
+  border-radius: 8px; background: var(--accent-soft); }
+.dc .scenario { display: grid; gap: 10px; align-content: start; }
+.dc .scenario h2 { margin: 0; }
+.dc .scenario .target { font-family: var(--mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.dc .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.dc .steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 13px; }
+.dc .steps .mark { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.dc .steps .ok .mark { background: var(--good-soft); color: var(--good); }
+.dc .steps .fail .mark { background: var(--bad-soft); color: var(--bad); }
+.dc .steps .detail { color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+.dc .check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+.dc .check input { width: 18px; height: 18px; }
+.dc .log-row { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+.dc .log-row .t { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dc .log-row .payload { color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+.dc .logs { max-height: 560px; overflow: auto; }
+.dc .linkish { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+.dc .camp { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0;
+  border-bottom: 1px solid var(--border); }
+@media (max-width: 600px) {
+  .dc .picker { grid-template-columns: 1fr; }
+  .dc .status-strip .val { font-size: 19px; }
+}

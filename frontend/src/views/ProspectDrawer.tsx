@@ -1,14 +1,18 @@
 import { useState } from "react";
 import { api, Decision } from "../api";
-import { ago, ErrorNote, human, Status, useData, useToast } from "../ui";
+import { ago, ErrorNote, human, Status, useConfirm, useData, useToast } from "../ui";
+import { useCan } from "../auth";
 import DecisionCard from "./DecisionCard";
 
-type Tab = "summary" | "research" | "decisions" | "timeline" | "tasks";
+type Tab = "workflow" | "summary" | "research" | "decisions" | "timeline" | "tasks";
 
 export default function ProspectDrawer({ leadId, onClose }: { leadId: string; onClose: () => void }) {
   const { data: m, error, reload } = useData<any>(`/memory/leads/${leadId}`);
   const { data: demo } = useData<any>("/demo/scenarios");
-  const [tab, setTab] = useState<Tab>("summary");
+  const [tab, setTab] = useState<Tab>("workflow");
+  const { data: wf, reload: reloadWf } = useData<any>(`/workflow/leads/${leadId}`);
+  const confirm = useConfirm();
+  const can = useCan();
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState("");
   const toast = useToast();
@@ -73,12 +77,51 @@ export default function ProspectDrawer({ leadId, onClose }: { leadId: string; on
           </div>
         )}
         <div className="tabs" role="tablist">
-          {(["summary", "research", "decisions", "timeline", "tasks"] as Tab[]).map((t) => (
+          {(["workflow", "summary", "research", "decisions", "timeline", "tasks"] as Tab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
               {human(t)}{t === "decisions" && m ? ` (${m.decisions.length})` : ""}
             </button>
           ))}
         </div>
+        {tab === "workflow" && wf && (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <h2>12-stage pipeline <small>where this prospect is now</small></h2>
+              <div className="stages">
+                {wf.stages.map((s: any) => (
+                  <div key={s.n} className={`stage ${s.state}`} title={s.detail ?? ""}>
+                    <b>{s.n}. {s.name}</b>
+                    <span className="sub">{human(s.state)}{s.detail ? ` · ${s.detail}` : ""}</span>
+                  </div>
+                ))}
+              </div>
+              {can.operate && !["closed_lost", "closed_won", "disqualified"].includes(wf.status) && (
+                <div className="row" style={{ marginTop: 12 }}>
+                  <button className="btn danger sm" onClick={async () => {
+                    if (!(await confirm({ title: "Cancel this prospect's workflow?", danger: true, confirm: "Cancel workflow",
+                      body: "Scheduled follow-ups are cancelled, pending approvals rejected, queued work closed and the lead marked closed. Nothing is deleted." }))) return;
+                    try {
+                      const r = await api.post<any>(`/workflow/leads/${leadId}/cancel`, { reason: "Cancelled from the prospect view" });
+                      toast(`Workflow cancelled: ${r.follow_ups_cancelled} follow-up(s), ${r.approvals_rejected} approval(s)`);
+                      reloadWf(); reload();
+                    } catch (e: any) { toast(e.message, true); }
+                  }}>Cancel workflow</button>
+                </div>
+              )}
+            </div>
+            <div className="card">
+              <h2>Workflow history <small>{wf.history.length} events</small></h2>
+              <div className="feed">
+                {wf.history.map((e: any) => (
+                  <div className="feed-item" key={e.id}>
+                    <span className="t">{ago(e.at)}</span>
+                    <span><b>{human(e.type)}</b> <span className="sub">{e.source}</span></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         {m && tab === "summary" && (
           <div className="grid">
             {lead.notes && <div className="banner info" style={{ margin: 0 }}>{lead.notes}</div>}

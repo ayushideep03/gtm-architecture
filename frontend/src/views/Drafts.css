@@ -1,0 +1,14 @@
+/* Stage 6 — drafting workspace */
+.d-list { padding: 6px; display: grid; gap: 2px; max-height: 70vh; overflow: auto; }
+.d-list .list-item { display: grid; gap: 2px; }
+.d-list-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.d-list-top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.d-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.d-editor { display: grid; gap: 14px; min-width: 0; }
+.d-evidence { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.d-evidence li { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 3px; font-size: 13px; overflow-wrap: anywhere; }
+.d-escalated { border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
+.d-explain { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.d-strategy { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+@media (max-width: 860px) { .d-list { max-height: 45vh; } }

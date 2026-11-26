@@ -476,7 +476,7 @@ class TaskExecutor:
         return {
             "task_id": str(task.id), "lead_id": _s(task.lead_id), "task_type": task.task_type,
             "capability": capability, "provider": used.name if used else None,
-            "mode": used.config.mode if used else None,
+            "mode": ("demo" if "demo" in (used.config.tags or []) else used.config.mode) if used else None,
             "duration_ms": attempts[-1]["duration_ms"] if attempts else None,
             "attempts": attempts, "idempotency_key": task.idempotency_key,
             "cost": used.config.cost_per_call if used else 0.0,

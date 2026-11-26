@@ -3,8 +3,9 @@ Live end-to-end validation of the Oxygen pipeline.
 
 Runs the REAL API (uvicorn) and TWO real background workers against an isolated
 database (gtm_e2e) and Redis prefix, with the real SMTP providers pointed at a
-local sink on 127.0.0.1 (nothing is relayed; no prospect is contacted). The AI
-is the labelled scripted demo vendor (no LLM key on this machine).
+local sink on 127.0.0.1 (nothing is relayed; no prospect is contacted). Profile:
+development (live providers where configured) with the labelled scripted demo AI
+in place of an LLM key. For the demo-provider pipeline see tests/test_demo_framework.py.
 
 Usage (from the repo root, Postgres + Redis running, psql/createdb on PATH):
     .venv/bin/python scripts/e2e/run_e2e.py [work_dir]
@@ -56,7 +57,7 @@ def check(stage: str, ok: bool, detail: str = "") -> bool:
 
 
 def env() -> dict:
-    return {**os.environ, "GTM_PROFILE": "demo", "DATABASE_URL": DB_URL, "GTM_CONFIG_FILE": str(WORK / "overlay.yaml"),
+    return {**os.environ, "GTM_PROFILE": "development", "DATABASE_URL": DB_URL, "GTM_CONFIG_FILE": str(WORK / "overlay.yaml"),
             "SMTP_HOST": "127.0.0.1", "SMTP_FROM_ADDRESS": "alex@oxygen.test", "SMTP_USERNAME": "", "SMTP_PASSWORD": "", "PYTHONUNBUFFERED": "1",
             "OXYGEN_API_KEYS": "e2e-validator=" + E2E_KEY, "OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": "", "IMAP_HOST": "", "BILLIONMAIL_URL": "", "APOLLO_API_KEY": ""}
 
@@ -141,6 +142,12 @@ def main() -> None:
     (WORK / "overlay.yaml").write_text(f"""
 runtime: {{key_prefix: gtm-e2e}}
 autonomy: {{tick_interval_s: 2}}
+llm:                                            # scripted demo AI (no key); real SMTP to the local sink
+  vendors: {{demo: {{}}}}
+  profiles:
+    planner: {{provider: demo, model: scripted-demo-playbook, fallback_profiles: []}}
+    researcher: {{provider: demo, model: scripted-demo-playbook, fallback_profiles: []}}
+    writer: {{provider: demo, model: scripted-demo-playbook, fallback_profiles: []}}
 providers:
   - {{name: smtp_email, settings: {{port: {SMTP_PORT}, security: none}}}}
   - {{name: smtp_meetings, settings: {{port: {SMTP_PORT}, security: none}}}}
@@ -264,9 +271,8 @@ providers:
     fu_lead = next((p for p in contacted if p["email"] not in (priya, elena)), None)
     if fu_lead:
         lid = fu_lead["id"]
-        sql(f"update interactions set occurred_at = occurred_at - interval '4 days' where lead_id='{lid}'")
-        sql(f"update tasks set created_at = created_at - interval '4 days', completed_at = completed_at - interval '4 days' where lead_id='{lid}'")
-        sql(f"update work_items set due_at = now() where lead_id='{lid}' and finished_at is null")
+        adv = post("/demo/clock/advance", {"hours": 96})       # the real demo clock: 4 days pass for this org
+        check("8 demo clock advanced 4 days", adv.get("advanced_hours") == 96, json.dumps(adv)[:160])
         if sql(f"select count(*) from work_items where lead_id='{lid}' and finished_at is null") == "0":
             post(f"/memory/leads/{lid}/rechecks", {"reason": "e2e follow-up check", "due_in_hours": 0, "created_by": "e2e"})
         fu = wait_until(lambda: [a for a in get("/approvals", params={"status": "pending"}) if a["lead_id"] == lid], 60, 2)

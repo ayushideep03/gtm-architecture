@@ -103,9 +103,37 @@ async def _reply_classified(db, lead, category, when, follow_up_after_days, acti
     if True:
         from app.pipeline import followups, meetings
         actions.append(await followups.on_reply(db, lead, category, when, follow_up_after_days))
+        if category != "out_of_office":
+            withdrawn = await _withdraw_stale_outreach(db, lead.id, category)
+            if withdrawn:
+                actions.append(f"{withdrawn} unsent outreach email(s) withdrawn from approval (prospect replied)")
         if category in ("meeting_request", "positive_interest"):
             await meetings.request_meeting(db, lead, by="prospect", note=f"reply classified as {category}")
             actions.append("meeting request recorded")
         if category in ("not_interested", "unsubscribe"):
             lead.status = "closed_lost"
             actions.append("lead closed (prospect declined)")
+
+
+async def _withdraw_stale_outreach(db, lead_id, category: str) -> int:
+    """A reply makes queued first-touch / follow-up emails stale: reject their pending approvals."""
+    import uuid as _uuid
+    from sqlalchemy import select
+    from app.compliance.approvals import ApprovalError, reject
+    from app.models.base import Task
+    from app.models.memory import Approval
+    n = 0
+    pending = (await db.execute(select(Approval).where(Approval.lead_id == lead_id, Approval.status == "pending",
+                                                       Approval.capability == "send_email"))).scalars().all()
+    for a in pending:
+        draft_id = (a.original_payload or {}).get("draft_task_id")
+        src = await db.get(Task, _uuid.UUID(draft_id)) if draft_id else None
+        if src is not None and src.task_type == "draft_reply":
+            continue                       # an answer to the prospect stays
+        try:
+            await reject(db, a.id, reviewer="system (prospect replied)",
+                         note=f"Withdrawn automatically: the prospect replied ({category}) before this was sent")
+            n += 1
+        except ApprovalError:
+            pass
+    return n
