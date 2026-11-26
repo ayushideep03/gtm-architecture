@@ -240,3 +240,34 @@ def reviewer_for(request: Request, claimed: Optional[str]) -> str:
 
 def principal_of(request: Request) -> Optional[Principal]:
     return getattr(request.state, "principal", None)
+
+
+# ── Demo access code (hosted demos) ───────────────────────────────────────────
+# When DEMO_ACCESS_CODE is set, the demo-user picker and demo sign-in require it first:
+# POST /auth/demo-unlock {code} sets a signed, expiring cookie. Unset = local behaviour.
+
+DEMO_ACCESS_COOKIE = "oxygen_demo_access"
+
+
+def demo_code_required() -> bool:
+    return bool(os.environ.get("DEMO_ACCESS_CODE"))
+
+
+def check_demo_code(code: str) -> bool:
+    expected = os.environ.get("DEMO_ACCESS_CODE") or ""
+    return bool(expected) and hmac.compare_digest(code.strip().encode(), expected.encode())
+
+
+def demo_unlocked(request: Request) -> bool:
+    if not demo_code_required():
+        return True
+    return read_session(request.cookies.get(DEMO_ACCESS_COOKIE)) == "demo-access"
+
+
+def hosted_secret_problem() -> Optional[str]:
+    """A hosted (serverless) deployment must not sign sessions with the default SECRET_KEY:
+    anyone could forge a session cookie and skip sign-in and the access code."""
+    from app.core.database import is_serverless
+    if is_serverless() and secret_is_default():
+        return "SECRET_KEY is not configured on this deployment"
+    return None

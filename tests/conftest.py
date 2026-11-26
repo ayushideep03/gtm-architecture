@@ -205,7 +205,7 @@ def _db_isolation(request):
         "TestDashboard",
         "TestLearning",
         "TestDemoPipeline", "TestTenantIsolation", "TestRolePermissions", "TestCampaignControls",
-        "TestReadinessFindings", "TestReplyWithdrawsQueuedOutreach", "TestDemoModeGuard",
+        "TestReadinessFindings", "TestReplyWithdrawsQueuedOutreach", "TestDemoModeGuard", "TestDemoAccessCode",
         "TestSmtp", "TestRoundTrip", "TestBillionMail", "TestReplyGapWaiver", "TestDemoScenarios",
     }
     if cls is None or cls.__name__ not in db_test_classes:

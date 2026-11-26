@@ -41,7 +41,9 @@ def get_redis_pool() -> Redis:
             decode_responses=True,
             max_connections=20,
         )
-        logger.info("Redis connection pool created: %s", settings.REDIS_URL)
+        from urllib.parse import urlsplit
+        u = urlsplit(settings.REDIS_URL)
+        logger.info("Redis connection pool created: %s://%s", u.scheme, u.hostname)   # never log credentials
     return _redis_pool
 
 

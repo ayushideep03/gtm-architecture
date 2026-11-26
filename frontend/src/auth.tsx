@@ -28,9 +28,11 @@ export const useAuth = () => useContext(AuthContext);
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ loading: boolean; required: boolean; demoLogin: boolean; principal: string | null;
-                                       role: string | null; organisation: string | null;
+                                       role: string | null; organisation: string | null; serverless?: boolean;
+                                       codeRequired?: boolean; unlocked?: boolean;
                                        error?: string; unreachable?: boolean }>(
     { loading: true, required: false, demoLogin: false, principal: null, role: null, organisation: null });
+  const [code, setCode] = useState("");
   const [demoUsers, setDemoUsers] = useState<any[]>([]);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,8 +43,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       setState({ loading: false, required: j.auth_required, demoLogin: j.demo_login, principal: j.principal,
-                 role: j.role, organisation: j.organisation });
-      if (j.demo_login && !j.principal) {
+                 role: j.role, organisation: j.organisation, serverless: j.serverless,
+                 codeRequired: j.demo_code_required, unlocked: j.demo_unlocked });
+      if (j.demo_login && !j.principal && j.demo_unlocked !== false) {
         const u = await fetch("/api/v1/auth/demo-users");
         if (u.ok) setDemoUsers(await u.json());
       }
@@ -74,6 +77,39 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setBusy(false);
     }
   };
+
+  const unlock = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await fetch("/api/v1/auth/demo-unlock", { method: "POST", headers: { "content-type": "application/json" },
+                                                           body: JSON.stringify({ code }) });
+      if (!r.ok) throw new Error(r.status === 401 ? "That access code is not correct." : `Could not unlock (${r.status}).`);
+      setCode("");
+      setState((s) => ({ ...s, error: undefined }));
+      await check();
+    } catch (err: any) {
+      setState((s) => ({ ...s, error: err.message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Serverless hosting has no always-on worker: while an admin/operator has the dashboard open,
+  // ask the server to run the autonomous loop every few seconds (a scheduled cron also runs it).
+  useEffect(() => {
+    const canOperate = state.role === "admin" || state.role === "operator";
+    if (!state.serverless || !state.demoLogin || !state.principal || !canOperate) return;
+    let running = false;
+    const id = window.setInterval(async () => {
+      if (running || document.visibilityState !== "visible") return;
+      running = true;
+      try { await fetch("/api/v1/demo/tick", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); }
+      catch { /* next interval retries */ }
+      finally { running = false; }
+    }, 6000);
+    return () => window.clearInterval(id);
+  }, [state.serverless, state.demoLogin, state.principal, state.role]);
 
   const demoSignIn = async (userId: string) => {
     setBusy(true);
@@ -118,7 +154,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <div className="login">
         <div className="card login-card">
           <div className="brand" style={{ padding: "0 0 12px" }}><span className="brand-mark" /><div><b>Oxygen</b><small>Autonomous AI Sales OS</small></div></div>
-          {state.demoLogin && demoUsers.length > 0 && (
+          {state.demoLogin && state.codeRequired && !state.unlocked && (
+            <form className="form" onSubmit={unlock}>
+              <div className="banner warn" style={{ margin: 0 }}><span>⚠</span><div><b>Demo mode.</b> Fictional organisations and data; no email or API call leaves this system. Enter the access code you were given.</div></div>
+              <label htmlFor="demo-code">Access code</label>
+              <input id="demo-code" className="text" type="password" autoComplete="off" value={code}
+                     onChange={(e) => setCode(e.target.value)} autoFocus />
+              <button className="btn primary" style={{ width: "100%" }} disabled={busy || !code}>Continue</button>
+            </form>
+          )}
+          {state.demoLogin && state.unlocked !== false && demoUsers.length > 0 && (
             <div className="grid" style={{ gap: 12 }}>
               <div className="banner warn" style={{ margin: 0 }}><span>⚠</span><div><b>Demo mode.</b> Fictional organisations and data; no email or API call leaves this system. Choose who to sign in as.</div></div>
               {orgs.map((o) => (
@@ -136,7 +181,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
               ))}
             </div>
           )}
-          {state.demoLogin && demoUsers.length === 0 && (
+          {state.demoLogin && state.unlocked !== false && demoUsers.length === 0 && (
             <div className="banner info" style={{ margin: 0 }}>No demo users yet. Start with <span className="mono">python start.py</span> (it loads the demo dataset).</div>
           )}
           {!state.demoLogin && (

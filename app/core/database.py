@@ -31,6 +31,18 @@ class Base(DeclarativeBase):
     pass
 
 
+def is_serverless() -> bool:
+    """Running as short-lived serverless functions (Vercel sets VERCEL=1)."""
+    return bool(os.environ.get("VERCEL") or os.environ.get("OXYGEN_SERVERLESS"))
+
+
+def database_url() -> str:
+    """The URL to connect with. Hosted Postgres (Neon via Vercel) also provides a direct,
+    unpooled URL: prefer it, because a transaction-mode pooler (PgBouncer) breaks asyncpg's
+    prepared statements, while the per-transaction tenant setting works on either."""
+    return os.environ.get("DATABASE_URL_UNPOOLED") or get_settings().DATABASE_URL
+
+
 def _build_async_url(url: str) -> str:
     """Convert sync postgres:// URL to async asyncpg driver URL."""
     if url.startswith("postgresql://"):
@@ -40,17 +52,41 @@ def _build_async_url(url: str) -> str:
     return url
 
 
-def create_engine_and_session() -> tuple:
-    settings = get_settings()
-    async_url = _build_async_url(settings.DATABASE_URL)
+def split_ssl(url: str) -> tuple[str, dict]:
+    """asyncpg rejects libpq URL options such as ``sslmode``/``channel_binding`` (hosted Postgres
+    adds them). Strip them and express TLS as a connect argument instead."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query))
+    sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+    connect_args: dict = {}
+    if sslmode and sslmode not in ("disable", "allow", "prefer"):
+        connect_args["ssl"] = True
+    return urlunsplit(parts._replace(query=urlencode(query))), connect_args
 
-    engine = create_async_engine(
-        async_url,
-        echo=os.environ.get("SQL_ECHO", "").lower() in ("1", "true", "yes"),   # opt-in SQL logging
-        pool_pre_ping=True,        # verify connections before use
-        pool_size=10,
-        max_overflow=20,
-    )
+
+def async_url_and_args() -> tuple[str, dict]:
+    return split_ssl(_build_async_url(database_url()))
+
+
+def create_engine_and_session() -> tuple:
+    async_url, connect_args = async_url_and_args()
+    echo = os.environ.get("SQL_ECHO", "").lower() in ("1", "true", "yes")   # opt-in SQL logging
+    if is_serverless():
+        # Each invocation may run on a fresh event loop and the instance may freeze between
+        # requests: keep no connections around (NullPool) instead of a long-lived pool.
+        from sqlalchemy.pool import NullPool
+        engine = create_async_engine(async_url, echo=echo, poolclass=NullPool, connect_args=connect_args)
+    else:
+        engine = create_async_engine(
+            async_url,
+            echo=echo,
+            pool_pre_ping=True,        # verify connections before use
+            pool_size=10,
+            max_overflow=20,
+            connect_args=connect_args,
+        )
 
     session_factory = async_sessionmaker(
         bind=engine,

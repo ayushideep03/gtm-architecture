@@ -185,8 +185,14 @@ async def stream(request: Request) -> StreamingResponse:
         since = datetime.now(timezone.utc) - timedelta(seconds=2)
         sent: set = set()
         order: deque = deque()
+        from app.core.database import is_serverless
+        # Serverless functions have a time limit: end the stream after ~25 s; the browser's
+        # EventSource reconnects on its own (retry 3 s) and screens refresh on reconnect.
+        deadline = asyncio.get_running_loop().time() + 25 if is_serverless() else None
         yield "retry: 3000\n\n"
         while not await request.is_disconnected():
+            if deadline is not None and asyncio.get_running_loop().time() > deadline:
+                break
             async with AsyncSessionLocal() as s:
                 events = (await s.execute(select(Event).where(Event.occurred_at > since - timedelta(seconds=15))
                                           .order_by(Event.occurred_at).limit(500))).scalars().all()

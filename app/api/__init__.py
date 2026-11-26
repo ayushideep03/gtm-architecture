@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.routes.admin import admin_router, integrations_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.ops import router as ops_router
 from app.api.routes.pipeline import router as pipeline_router
 from app.core.auth import require_principal
 
@@ -29,6 +30,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(webhooks_router)
+api_router.include_router(ops_router)          # cron / bootstrap: guarded by CRON_SECRET
 
 # Everything else requires an authenticated principal (see app/core/auth.py).
 _protected = [Depends(require_principal)]

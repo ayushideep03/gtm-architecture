@@ -1,0 +1,11 @@
+# Never uploaded to Vercel
+.env
+.env.*
+!.env.example
+.venv/
+**/__pycache__/
+*.zip
+*.pdf
+frontend/node_modules/
+frontend/dist/
+.claude/
