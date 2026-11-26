@@ -13,7 +13,9 @@ Vercel has no always-on processes, so the background worker is replaced by:
 
 The first visit to a new deployment migrates the database and loads the demo dataset automatically. A **demo access code** must be entered before the demo-user picker appears.
 
-Verified locally in serverless mode (empty database, no worker): first-visit self-setup, access code, cron secret, the pipeline driven by the tick pump, a full conversion scenario, and the live stream ending itself before the function limit. **Not yet verified on Vercel itself.** The first real deployment is the first time it runs there.
+Verified on Vercel production (Neon + Upstash, 2026-11-26): first-visit self-setup, access code (wrong code refused), demo sign-in, the pipeline driven by the tick pump, research, drafts, approvals, follow-ups, a full conversion scenario, pause/resume seen by every function instance through Redis, tenant isolation enforced on Neon (migration 0013), and the live stream ending itself before the function limit.
+
+Python dependencies come from `requirements.txt`. Keep a `[project]`-less `pyproject.toml` out of the repository root: Vercel installs from `pyproject.toml` when one exists, and the function then fails with `No module named 'fastapi'`. Pytest settings live in `pytest.ini` for this reason.
 
 ## One-time setup (about 10 minutes)
 
