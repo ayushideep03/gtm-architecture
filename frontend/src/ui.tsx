@@ -22,6 +22,11 @@ export function useData<T>(path: string | null, deps: unknown[] = []) {
   useEffect(() => {
     load();
   }, [load]);
+  // safety net: refresh visible screens every 20 s even if a live event was missed
+  useEffect(() => {
+    const id = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 20000);
+    return () => window.clearInterval(id);
+  }, [load]);
   // refetch (debounced) when the live stream reports new activity
   const timer = useRef<number>();
   useEffect(() => {
@@ -44,7 +49,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<LiveState>({ connected: false, tick: 0, events: [] });
   useEffect(() => {
     const es = new EventSource("/api/v1/stream");
-    es.onopen = () => setState((s) => ({ ...s, connected: true }));
+    // (re)connected: anything may have changed while disconnected, so every screen refreshes
+    es.onopen = () => setState((s) => ({ ...s, connected: true, tick: s.tick + 1 }));
     es.onerror = () => setState((s) => ({ ...s, connected: false }));
     es.addEventListener("oxygen", (msg) => {
       const ev = JSON.parse((msg as MessageEvent).data);
@@ -306,3 +312,7 @@ export function LineChart({ points, series, height = 180 }: {
     </div>
   );
 }
+
+/** A finding written by a demo provider or the scripted demo AI (recorded on the finding itself). */
+export const isSimulatedFinding = (f: { body?: any; source?: string | null }) =>
+  Boolean(f?.body?.demo || f?.body?.simulated || /simulated|scripted|demo/i.test(f?.source ?? ""));

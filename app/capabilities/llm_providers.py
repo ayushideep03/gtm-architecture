@@ -103,6 +103,14 @@ class LLMCapabilityProvider(ExecutionProvider):
             return ExecutionResult(success=False, status="failed", provider=self._name, error_code="UNAVAILABLE",
                                    error_message=f"LLM failed: {exc}")
 
+    def provenance(self, meta: dict) -> tuple[str, dict]:
+        """(source label, body fields) recording which model wrote a finding. Output of the scripted
+        demo AI is marked demo=True and labelled in its source, so every view can tag it DEMO."""
+        demo = meta.get("vendor") == "demo"
+        return (f"{self._name} (scripted demo AI)" if demo else self._name,
+                {"llm": {"vendor": meta.get("vendor"), "model": meta.get("model")}, "demo": demo,
+                 **({"simulated": True} if demo else {})})
+
     async def run(self, context, session, memory, cfg, lead) -> ExecutionResult:  # pragma: no cover - abstract
         raise NotImplementedError
 
@@ -203,17 +211,18 @@ class LLMResearchProvider(LLMCapabilityProvider):
         dropped = len(data["findings"]) + len(data["facts"]) - len(findings) - len(facts)
 
         task_id = context.task_id
+        src, prov = self.provenance(meta)
         for f in findings:
             await record_finding(session, tenant_id=lead.tenant_id, lead_id=lead.id, entity_type="company",
                                  entity_id=uuid.UUID(company["id"]), kind=_FINDING_KIND_MAP.get(f["kind"], "research"),
                                  summary=f["statement"], confidence=min(max(float(f["confidence"]), 0), 1),
-                                 citations=[{"url": f["source_url"], "quote": f["quote"]}], source=self._name,
-                                 body={"research_kind": f["kind"]}, source_task_id=task_id)
+                                 citations=[{"url": f["source_url"], "quote": f["quote"]}], source=src,
+                                 body={"research_kind": f["kind"], **prov}, source_task_id=task_id)
         brief = await record_finding(
             session, tenant_id=lead.tenant_id, lead_id=lead.id, entity_type="company",
             entity_id=uuid.UUID(company["id"]), kind="brief", summary=data["company_summary"],
             citations=[{"url": f["source_url"], "quote": f["quote"]} for f in findings][:10],
-            body={"gaps": data["gaps"], "pages_read": [p.url for p in pages]}, source=self._name,
+            body={"gaps": data["gaps"], "pages_read": [p.url for p in pages], **prov}, source=src,
             source_task_id=task_id)
         fact_results = []
         ledger = FactLedger()
@@ -271,7 +280,8 @@ class LLMIntentProvider(LLMCapabilityProvider):
         finding = await record_finding(
             session, tenant_id=lead.tenant_id, lead_id=lead.id, entity_type="lead", entity_id=lead.id,
             kind="intent_assessment", summary=f"{data['intent_level']} intent ({score:.0f}/100): {data['rationale']}",
-            body=data, confidence=score / 100, source=self._name, source_task_id=context.task_id,
+            body={**data, **self.provenance(meta)[1]}, confidence=score / 100, source=self.provenance(meta)[0],
+            source_task_id=context.task_id,
             citations=[{"evidence_ref": s["evidence_ref"], "quote": s["signal"]} for s in data["signals"]])
         return ExecutionResult(success=True, status="completed", provider=self._name, result={
             "intent_level": data["intent_level"], "score": score, "signals": data["signals"],
@@ -324,8 +334,8 @@ class LLMQualificationProvider(LLMCapabilityProvider):
         finding = await record_finding(
             session, tenant_id=lead.tenant_id, lead_id=lead.id, entity_type="lead", entity_id=lead.id,
             kind="qualification", summary=f"{'Qualified' if qualified else 'Not qualified'} ({score}/100): {reason}",
-            body={**data, "deterministic_floor": floor, "final_qualified": qualified}, confidence=score / 100,
-            source=self._name, source_task_id=context.task_id,
+            body={**data, "deterministic_floor": floor, "final_qualified": qualified, **self.provenance(meta)[1]},
+            confidence=score / 100, source=self.provenance(meta)[0], source_task_id=context.task_id,
             citations=[{"evidence_ref": d["evidence_ref"], "quote": d["assessment"]} for d in data["dimensions"]
                        if d["evidence_ref"]])
         return ExecutionResult(success=True, status="completed", provider=self._name, result={

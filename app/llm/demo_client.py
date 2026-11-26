@@ -40,6 +40,15 @@ def _tail_json(user: str, marker: str) -> dict:
     return _doc(user.split(marker, 1)[1])
 
 
+def _clip(text: str, limit: int) -> str:
+    """Shorten at a word boundary (never mid-word)."""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(",;:—-")
+    return cut or text[:limit]
+
+
 def _age_hours(ts: Optional[str]) -> float:
     if not ts:
         return 0.0
@@ -352,9 +361,9 @@ class ScriptedDemoClient:
                     f"with one segment and a two-week pilot, so the effort stays small. In short: {value.lower()}."
                     f"\n\n{cta}\n\n{sender.get('name', '')}")
         else:
-            subjects = [f"{name} and {(values[0] if values else 'outbound research').lower()[:40]}",
-                        f"Idea for {name}'s sales team", f"{name}: {hook[:45]}"]
-            subject = subjects[variant % len(subjects)][:88]
+            subjects = [f"{name}: {(values[0] if values else 'outbound research').lower()}",
+                        f"An idea for the {name} sales team", f"A quick thought after the recent {name} news"]
+            subject = _clip(subjects[variant % len(subjects)], 88)
             body = (f"Hi {first},\n\nI noticed that {hook}. {offer + '.' if offer else ''} "
                     f"For a team like yours that means {value.lower()}.\n\n{cta}\n\n"
                     f"{sender.get('name', '')}, {sender.get('title', '')}")

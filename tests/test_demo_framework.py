@@ -376,3 +376,52 @@ class TestReplyWithdrawsQueuedOutreach:
         after = (await admin.get(f"/api/v1/approvals/{appr['id']}")).json()
         assert after["status"] == "rejected" and after["decided_by"] == "system (prospect replied)"
         await admin.aclose()
+
+
+@pytest.mark.usefixtures("demo_profile")
+class TestReadinessFindings:
+    @pytest.mark.anyio
+    async def test_run_now_makes_follow_up_due_immediately(self, app):
+        from app.pipeline import demo_control
+        admin = await _loaded(app)
+        await admin.post("/api/v1/demo/start")
+        r = await admin.post("/api/v1/demo/scenarios/no_reply/run", json={"auto_approve": True})
+        assert r.json()["completed"], r.json()["log"]
+        sched = [f for f in (await admin.get("/api/v1/follow-ups", params={"status": "scheduled"})).json()]
+        assert sched, "the no-reply scenario schedules the next step"
+        res = (await admin.post(f"/api/v1/follow-ups/{sched[0]['id']}/run-now")).json()
+        assert res["made_due"] >= 1 and res["status"] == "due"          # persisted before the due query
+        again = await admin.post(f"/api/v1/follow-ups/{sched[0]['id']}/run-now")
+        assert again.status_code == 409                                    # no double trigger
+        await demo_control.tick_now()
+        await admin.aclose()
+
+    @pytest.mark.anyio
+    async def test_scripted_intent_assessments_are_labelled_demo_everywhere(self, app):
+        from app.core.database import AsyncSessionLocal
+        from app.models.memory import ResearchFinding
+        from app.pipeline import demo_control
+        admin = await _loaded(app)
+        await admin.post("/api/v1/demo/start")
+        await demo_control.tick_now(8)
+        async with AsyncSessionLocal() as s:
+            intents = (await s.execute(select(ResearchFinding).where(
+                ResearchFinding.kind == "intent_assessment"))).scalars().all()
+        assert intents
+        for f in intents:                                     # stored provenance, not inferred by the UI
+            assert f.body["demo"] is True and f.body["llm"]["vendor"] == "demo"
+            assert f.source.endswith("(scripted demo AI)")
+        res = (await admin.get("/api/v1/research", params={"kind": "intent_assessment"})).json()["items"]
+        assert res and all(i["simulated"] for i in res)
+        mem = (await admin.get(f"/api/v1/memory/leads/{intents[0].lead_id}")).json()
+        shown = [f for f in mem["findings"] if f["kind"] == "intent_assessment"]
+        assert shown and all(f["body"]["demo"] is True for f in shown)   # drawer / approvals read this flag
+        await admin.aclose()
+
+    @pytest.mark.anyio
+    async def test_recalculate_note_is_consistent(self, app):
+        admin = await _loaded(app)
+        camp = (await admin.get("/api/v1/campaigns")).json()[0]
+        note = (await admin.post(f"/api/v1/campaigns/{camp['id']}/qualification/recalculate")).json()["note"]
+        assert note == "Only leads not yet contacted are re-scored; contacted leads keep their stage and score."
+        await admin.aclose()

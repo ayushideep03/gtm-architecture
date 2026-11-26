@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { api, Approval } from "../api";
 import type { Nav } from "../App";
-import { ago, ErrorNote, human, Status, useData, useToast } from "../ui";
+import { ago, ErrorNote, human, isSimulatedFinding, Status, useData, useToast } from "../ui";
 import { useAuth, useCan } from "../auth";
 
 export default function Approvals({ nav }: { nav: Nav }) {
+  const { demoLogin } = useAuth();
   const [filter, setFilter] = useState("pending");
   const { data, error, reload } = useData<Approval[]>(`/approvals?status=${filter}`);
   const [selected, setSelected] = useState<string | null>(null);
@@ -15,7 +16,8 @@ export default function Approvals({ nav }: { nav: Nav }) {
       <div className="page-head">
         <div>
           <h1>Approval Centre</h1>
-          <p>Every external action Oxygen proposes waits here. Edit, approve or reject — nothing is sent without you.</p>
+          <p>Every external action Oxygen proposes waits here. Edit, approve or reject — nothing is sent without you.
+            {demoLogin && <> <span className="badge demo">DEMO</span> Approved emails and invitations are simulated: recorded, never delivered.</>}</p>
         </div>
         <select value={filter} onChange={(e) => { setFilter(e.target.value); setSelected(null); }} aria-label="Filter approvals">
           <option value="pending">Pending</option>
@@ -56,7 +58,7 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
   const [busy, setBusy] = useState(false);
   const { data: memory } = useData<any>(a.lead_id ? `/memory/leads/${a.lead_id}` : null);
   const can = useCan();
-  const { role } = useAuth();
+  const { role, demoLogin: demoMode } = useAuth();
   useEffect(() => { setSubject(payload.subject ?? ""); setBody(payload.body ?? ""); setTopic(payload.topic ?? ""); }, [a.id]); // eslint-disable-line
 
   const pending = a.status === "pending";
@@ -68,7 +70,9 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
     try {
       const final = isEmail ? { ...a.original_payload, subject, body } : a.capability === "book_meeting" ? { ...a.original_payload, topic } : undefined;
       await api.post(`/approvals/${a.id}/${kind}`, { reviewer: "dashboard-user", note: note || undefined, ...(kind === "approve" && edited ? { payload: final } : {}) });
-      toast(kind === "approve" ? "Approved. The worker executes it on the next tick (compliance is re-checked at send time)." : "Rejected. Oxygen will reconsider this prospect.");
+      toast(kind === "approve"
+        ? `Approved. The worker executes it on the next tick (compliance is re-checked at send time)${demoMode ? " — simulated in demo mode, nothing is delivered" : ""}.`
+        : "Rejected. Oxygen will reconsider this prospect.");
       onDone();
     } catch (e: any) {
       toast(e.message, true);
@@ -80,7 +84,8 @@ function ApprovalDetail({ a, onDone, nav }: { a: Approval; onDone: () => void; n
   const evidence: string[] = Array.isArray(a.evidence) ? (a.evidence as any[]).map(String) : [];
   const describe = (id: string): string => {
     if (!memory) return id.slice(0, 8);
-    const f = memory.findings.find((x: any) => x.id === id); if (f) return `${human(f.kind)}: ${f.summary}`;
+    const f = memory.findings.find((x: any) => x.id === id);
+    if (f) return `${isSimulatedFinding(f) ? "[DEMO] " : ""}${human(f.kind)}: ${f.summary}`;
     const i = memory.interactions.find((x: any) => x.id === id); if (i) return `${i.direction} ${human(i.type)}: ${i.subject ?? ""}`;
     const t = memory.tasks.find((x: any) => x.id === id); if (t) return `Task ${human(t.capability)} (${t.status})`;
     const d = (memory.decisions ?? []).find((x: any) => x.id === id); if (d) return `Earlier decision: ${human(d.action)}`;

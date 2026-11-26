@@ -178,15 +178,26 @@ async def decisions(limit: int = Query(50, le=300), db: AsyncSession = Depends(g
 @router.get("/stream", summary="Live event stream (SSE)")
 async def stream(request: Request) -> StreamingResponse:
     async def gen():
+        # Events are timestamped when created but become visible when their transaction commits,
+        # so a worker's events can appear "in the past". Re-read a sliding 15 s window and skip ids
+        # already sent, instead of a strict high-water mark that would silently drop them.
+        from collections import deque
         since = datetime.now(timezone.utc) - timedelta(seconds=2)
+        sent: set = set()
+        order: deque = deque()
         yield "retry: 3000\n\n"
         while not await request.is_disconnected():
             async with AsyncSessionLocal() as s:
-                events = (await s.execute(select(Event).where(Event.occurred_at > since)
-                                          .order_by(Event.occurred_at).limit(200))).scalars().all()
-                people = await _people_for(s, {e.lead_id for e in events if e.lead_id})
-            for e in events:
+                events = (await s.execute(select(Event).where(Event.occurred_at > since - timedelta(seconds=15))
+                                          .order_by(Event.occurred_at).limit(500))).scalars().all()
+                fresh = [e for e in events if e.id not in sent]
+                people = await _people_for(s, {e.lead_id for e in fresh if e.lead_id})
+            for e in fresh:
                 since = max(since, e.occurred_at)
+                sent.add(e.id)
+                order.append(e.id)
+                if len(order) > 5000:
+                    sent.discard(order.popleft())
                 yield f"event: oxygen\ndata: {json.dumps(_event_view(e, people), default=str)}\n\n"
             yield ": keep-alive\n\n"
             await asyncio.sleep(1.5)

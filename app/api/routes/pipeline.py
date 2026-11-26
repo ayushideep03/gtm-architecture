@@ -400,8 +400,7 @@ async def research(lead_id: Optional[uuid.UUID] = None, company_id: Optional[uui
                       "source": body.get("source") or f.source, "source_ref": body.get("source_ref"),
                       "why_it_matters": body.get("why_it_matters"), "strength": body.get("strength"),
                       "confidence": f.confidence,
-                      "simulated": bool(body.get("demo") or "simulated" in (f.source or "")
-                                        or (scripted_ai and f.kind == "intent_assessment")),
+                      "simulated": _is_simulated(f, scripted_ai),
                       "citations": f.citations, "created_at": f.created_at})
     companies: dict[str, dict] = {}
     if items:
@@ -761,6 +760,15 @@ async def workflow_logs(limit: int = Query(200, ge=1, le=1000), event_type: Opti
     if event_type:
         stmt = stmt.where(Event.event_type == event_type)
     return [_event_view(e) for e in (await db.execute(stmt)).scalars().all()]
+
+
+def _is_simulated(f: ResearchFinding, scripted_ai: bool) -> bool:
+    """Simulated = written by a demo provider or the scripted demo AI (recorded on the finding);
+    AI findings from before provenance was recorded count as simulated while the scripted AI is active."""
+    body = f.body or {}
+    src = f.source or ""
+    return bool(body.get("demo") or body.get("simulated") or "simulated" in src or "scripted demo AI" in src
+                or (scripted_ai and src.startswith("llm_")))
 
 
 def _event_view(e: Event) -> dict:

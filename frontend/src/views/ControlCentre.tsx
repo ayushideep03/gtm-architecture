@@ -123,7 +123,7 @@ export default function ControlCentre({ nav }: { nav: Nav }) {
               <tbody>
                 {providers?.providers?.map((p: any) => (
                   <tr key={p.provider_name}>
-                    <td>{p.provider_name}{p.mode === "dry_run" && <span className="badge" style={{ marginLeft: 6 }}>dry run</span>}{p.tags?.includes("mock") && <span className="badge warn" style={{ marginLeft: 6 }}>mock</span>}</td>
+                    <td>{p.provider_name}{p.mode === "dry_run" && <span className="badge" style={{ marginLeft: 6 }}>dry run</span>}{(p.tags?.includes("mock") || p.tags?.includes("demo")) && <span className="badge demo" style={{ marginLeft: 6 }} title="Simulated provider: no external service is contacted">DEMO</span>}</td>
                     <td className="sub">{p.supported_task_types.map(human).join(", ")}</td>
                     <td>{p.available ? <span className="badge good">available</span> : <span className="badge" title={p.unavailable_reason}>unavailable</span>}
                       {!p.available && <div className="sub" style={{ maxWidth: 260 }}>{p.unavailable_reason}</div>}</td>

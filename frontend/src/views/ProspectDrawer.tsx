@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, Decision } from "../api";
-import { ago, ErrorNote, human, Status, useConfirm, useData, useToast } from "../ui";
+import { ago, DemoTag, ErrorNote, human, isSimulatedFinding, Status, useConfirm, useData, useToast } from "../ui";
 import { useCan } from "../auth";
 import DecisionCard from "./DecisionCard";
 
@@ -184,7 +184,7 @@ export default function ProspectDrawer({ leadId, onClose }: { leadId: string; on
             {!m.findings.length && <div className="empty">No research findings yet</div>}
             {m.findings.map((f: any) => (
               <div className="decision" key={f.id}>
-                <div className="head"><span className="row"><span className="badge blue">{human(f.kind)}</span><span className="sub">{f.source}</span></span><span className="muted">{ago(f.created_at)}</span></div>
+                <div className="head"><span className="row"><span className="badge blue">{human(f.kind)}</span>{isSimulatedFinding(f) && <DemoTag title={f.kind === "intent_assessment" ? "Assessed by the scripted demo AI from simulated signals — not a verified fact" : undefined} />}<span className="sub">{f.source}</span></span><span className="muted">{ago(f.created_at)}</span></div>
                 <div>{f.summary}</div>
                 {f.citations?.filter((c: any) => c.quote || c.url).map((c: any, i: number) => (
                   <div className="sub" key={i}>“{c.quote ?? ""}” {c.url && <a href={c.url} target="_blank" rel="noreferrer">source</a>}</div>

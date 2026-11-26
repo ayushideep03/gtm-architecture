@@ -105,7 +105,8 @@ async def load() -> dict:
                 rows = [{"name": co[0], "domain": co[1], "industry": co[2], "employees": co[3], "city": co[4],
                          "country": co[5], "technologies": co[6], "funding_stage": co[7],
                          "description": f"{demo_data.DEMO_LABEL}. Fictional company used for the Oxygen demo.",
-                         "priority": "high" if i < 3 else "medium" if i < 8 else "low"}
+                         "priority": "high" if i < 3 else "medium" if i < 8 else "low",
+                         "enrichment_source": "demo dataset (simulated firmographics)"}
                         for i, co in enumerate(c2 for c2 in demo_data.COMPANIES if c2[9] == org["key"])]
                 accts = await camp.add_accounts(s, c, rows, "demo dataset")
                 await s.commit()

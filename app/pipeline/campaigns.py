@@ -172,6 +172,8 @@ async def _company(db: AsyncSession, data: dict) -> Company:
         co.technologies = json.dumps(techs)
     if not co.website:
         co.website = f"https://{domain}"
+    if data.get("enrichment_source") and co.enriched_at is None:   # firmographics supplied by a provider/dataset
+        co.enriched_at, co.enrichment_source = _now(), data["enrichment_source"]
     await db.flush()
     return co
 
